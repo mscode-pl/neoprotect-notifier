@@ -28,7 +28,8 @@ jobs:
       - name: Set up build matrix
         id: setup_matrix
         run: |
-          echo "matrix=$(cat << EOF
+          echo "matrix<<EOF" >> $GITHUB_OUTPUT
+          cat << 'JSON_EOF' >> $GITHUB_OUTPUT
           [
             {"GOOS": "linux", "GOARCH": "amd64", "extension": ""},
             {"GOOS": "linux", "GOARCH": "arm64", "extension": ""},
@@ -36,8 +37,8 @@ jobs:
             {"GOOS": "darwin", "GOARCH": "arm64", "extension": ""},
             {"GOOS": "windows", "GOARCH": "amd64", "extension": ".exe"}
           ]
-          EOF
-          )" >> $GITHUB_OUTPUT
+          JSON_EOF
+          echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Build for multiple platforms
         id: build_release
