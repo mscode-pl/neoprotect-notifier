@@ -1,0 +1,44 @@
+{
+  "apiKey": "your-api-key-here",
+  "apiEndpoint": "https://api.neoprotect.net/v2",
+  "pollIntervalSeconds": 60,
+  "monitorMode": "all",
+  "specificIPs": [
+    "192.168.1.1",
+    "10.0.0.1"
+  ],
+  "enabledIntegrations": [
+    "discord",
+    "webhook"
+  ],
+  "integrationConfigs": {
+    "discord": {
+      "webhookUrl": "https://discord.com/api/webhooks/YOUR/DISCORD/WEBHOOK",
+      "username": "NeoProtect Monitor",
+      "avatarUrl": "https://example.com/avatar.png"
+    },
+    "discord_bot": {
+      "token": "YOUR_DISCORD_BOT_TOKEN",
+      "clientId": "YOUR_DISCORD_CLIENT_ID",
+      "guildId": "YOUR_DISCORD_GUILD_ID",
+      "channelId": "YOUR_DISCORD_CHANNEL_ID"
+    },
+    "webhook": {
+      "url": "https://your-webhook-endpoint.com/notify",
+      "headers": {
+        "Authorization": "Bearer your-token-here",
+        "Content-Type": "application/json"
+      },
+      "timeout": 10
+    },
+    "email": {
+      "smtpServer": "smtp.example.com",
+      "smtpPort": 587,
+      "username": "alerts@example.com",
+      "password": "your-smtp-password",
+      "from": "alerts@example.com",
+      "to": ["admin@example.com", "security@example.com"],
+      "subject": "NeoProtect Attack Alert"
+    }
+  }
+}

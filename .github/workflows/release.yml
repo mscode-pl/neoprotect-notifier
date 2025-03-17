@@ -1,0 +1,141 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    name: Build and Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.20'
+
+      - name: Get tag version
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+
+      - name: Set up build matrix
+        id: setup_matrix
+        run: |
+          echo "matrix=$(cat << EOF
+          [
+            {"GOOS": "linux", "GOARCH": "amd64", "extension": ""},
+            {"GOOS": "linux", "GOARCH": "arm64", "extension": ""},
+            {"GOOS": "darwin", "GOARCH": "amd64", "extension": ""},
+            {"GOOS": "darwin", "GOARCH": "arm64", "extension": ""},
+            {"GOOS": "windows", "GOARCH": "amd64", "extension": ".exe"}
+          ]
+          EOF
+          )" >> $GITHUB_OUTPUT
+
+      - name: Build for multiple platforms
+        id: build_release
+        run: |
+          mkdir -p release
+          
+          echo "${{ steps.setup_matrix.outputs.matrix }}" | jq -c '.[]' | while read -r os_arch; do
+            GOOS=$(echo $os_arch | jq -r '.GOOS')
+            GOARCH=$(echo $os_arch | jq -r '.GOARCH')
+            EXT=$(echo $os_arch | jq -r '.extension')
+          
+            echo "Building for $GOOS/$GOARCH..."
+          
+            # Set environment variables for this build
+            export GOOS=$GOOS
+            export GOARCH=$GOARCH
+          
+            # Build the application
+            output_name="neoprotect-notifier-$GOOS-$GOARCH$EXT"
+            go build -v -o "release/$output_name" -ldflags="-X main.Version=${{ env.VERSION }}"
+          
+            # Create checksum
+            cd release
+            sha256sum "$output_name" > "${output_name}.sha256"
+            cd ..
+          done
+
+      - name: Prepare config.json.example
+        run: |
+          cat > release/config.json.example << 'EOF'
+          {
+            "apiKey": "your-neoprotect-api-key",
+            "apiEndpoint": "https://api.neoprotect.net/v2",
+            "pollIntervalSeconds": 60,
+            "monitorMode": "all",
+            "specificIPs": [
+              "192.168.1.1"
+            ],
+            "enabledIntegrations": [
+              "discord",
+              "webhook",
+              "console"
+            ],
+            "integrationConfigs": {
+              "discord": {
+                "webhookUrl": "https://discord.com/api/webhooks/YOUR/DISCORD/WEBHOOK",
+                "username": "NeoProtect Monitor"
+              },
+              "discord_bot": {
+                "token": "YOUR_DISCORD_BOT_TOKEN",
+                "clientId": "YOUR_DISCORD_CLIENT_ID",
+                "guildId": "YOUR_DISCORD_GUILD_ID",
+                "channelId": "YOUR_DISCORD_CHANNEL_ID"
+              },
+              "webhook": {
+                "url": "https://your-webhook-endpoint.com/notify",
+                "headers": {
+                  "Authorization": "Bearer your-token-here",
+                  "Content-Type": "application/json"
+                },
+                "timeout": 10
+              },
+              "console": {
+                "logPrefix": "NEOPROTECT",
+                "formatJson": false,
+                "colorEnabled": true
+              }
+            }
+          }
+          EOF
+
+      - name: Create archive files
+        run: |
+          cd release
+          
+          # Linux and macOS archives (tar.gz)
+          tar -czf neoprotect-notifier-linux-amd64.tar.gz neoprotect-notifier-linux-amd64 neoprotect-notifier-linux-amd64.sha256 config.json.example
+          tar -czf neoprotect-notifier-linux-arm64.tar.gz neoprotect-notifier-linux-arm64 neoprotect-notifier-linux-arm64.sha256 config.json.example
+          tar -czf neoprotect-notifier-darwin-amd64.tar.gz neoprotect-notifier-darwin-amd64 neoprotect-notifier-darwin-amd64.sha256 config.json.example
+          tar -czf neoprotect-notifier-darwin-arm64.tar.gz neoprotect-notifier-darwin-arm64 neoprotect-notifier-darwin-arm64.sha256 config.json.example
+          
+          # Windows archive (zip)
+          apt-get update && apt-get install -y zip
+          zip neoprotect-notifier-windows-amd64.zip neoprotect-notifier-windows-amd64.exe neoprotect-notifier-windows-amd64.exe.sha256 config.json.example
+
+      - name: Create Release
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: NeoProtect Notifier ${{ env.VERSION }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            release/neoprotect-notifier-linux-amd64.tar.gz
+            release/neoprotect-notifier-linux-arm64.tar.gz
+            release/neoprotect-notifier-darwin-amd64.tar.gz
+            release/neoprotect-notifier-darwin-arm64.tar.gz
+            release/neoprotect-notifier-windows-amd64.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
