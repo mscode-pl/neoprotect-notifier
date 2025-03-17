@@ -84,24 +84,24 @@ Create a `config.json` file in the application directory:
 
 ```json
 {
-  "apiKey": "your-neoprotect-api-key",
-  "apiEndpoint": "https://api.neoprotect.net/v2",
-  "pollIntervalSeconds": 60,
-  "monitorMode": "all",
-  "specificIPs": [
-    "192.168.1.1"
-  ],
-  "enabledIntegrations": [
-    "discord",
-    "webhook",
-    "console"
-  ],
-  "integrationConfigs": {
-    "discord": {
-      "webhookUrl": "https://discord.com/api/webhooks/YOUR/DISCORD/WEBHOOK",
-      "username": "NeoProtect Monitor"
-    }
-  }
+   "apiKey": "your-neoprotect-api-key",
+   "apiEndpoint": "https://api.neoprotect.net/v2",
+   "pollIntervalSeconds": 60,
+   "monitorMode": "all",
+   "specificIPs": [
+      "192.168.1.1"
+   ],
+   "enabledIntegrations": [
+      "discord",
+      "webhook",
+      "console"
+   ],
+   "integrationConfigs": {
+      "discord": {
+         "webhookUrl": "https://discord.com/api/webhooks/YOUR/DISCORD/WEBHOOK",
+         "username": "NeoProtect Monitor"
+      }
+   }
 }
 ```
 
@@ -183,14 +183,14 @@ Send notifications to a custom HTTP endpoint.
 You can extend the system with custom integrations:
 
 1. **Built-in Integration**:
-    - Create a new file in the `integrations` package
-    - Implement the `Integration` interface
-    - Register it in the `integrations/manager.go` file
+   - Create a new file in the `integrations` package
+   - Implement the `Integration` interface
+   - Register it in the `integrations/manager.go` file
 
 2. **Plugin Integration**: (Coming Soon)
-    - Create a Go file with an exported `Integration` variable
-    - Build it as a plugin: `go build -buildmode=plugin -o ./integrations/myplugin.so myplugin.go`
-    - Add the plugin name to `enabledIntegrations` in config
+   - Create a Go file with an exported `Integration` variable
+   - Build it as a plugin: `go build -buildmode=plugin -o ./integrations/myplugin.so myplugin.go`
+   - Add the plugin name to `enabledIntegrations` in config
 
 ## 🐳 Docker Support (Coming Soon)
 
@@ -237,10 +237,10 @@ This project uses GitHub Actions to automatically build and publish releases for
    git push origin v1.0.0
    ```
 3. GitHub Actions will automatically:
-    - Build binaries for Linux, macOS, and Windows (both amd64 and arm64 where applicable)
-    - Create SHA256 checksums for all binaries
-    - Package the binaries with example config files
-    - Create a new release with all assets attached
+   - Build binaries for Linux, macOS, and Windows (both amd64 and arm64 where applicable)
+   - Create SHA256 checksums for all binaries
+   - Package the binaries with example config files
+   - Create a new release with all assets attached
 
 The release will include:
 - Linux binaries (amd64, arm64)
