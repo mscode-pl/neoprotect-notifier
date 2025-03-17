@@ -44,27 +44,32 @@ jobs:
         id: build_release
         run: |
           mkdir -p release
-          
+
+          # For debugging
+          echo "Matrix content: ${{ steps.setup_matrix.outputs.matrix }}"
+
           echo "${{ steps.setup_matrix.outputs.matrix }}" | jq -c '.[]' | while read -r os_arch; do
             GOOS=$(echo $os_arch | jq -r '.GOOS')
             GOARCH=$(echo $os_arch | jq -r '.GOARCH')
             EXT=$(echo $os_arch | jq -r '.extension')
-          
+
             echo "Building for $GOOS/$GOARCH..."
-          
+
             # Set environment variables for this build
             export GOOS=$GOOS
             export GOARCH=$GOARCH
-          
+
             # Build the application
             output_name="neoprotect-notifier-$GOOS-$GOARCH$EXT"
             go build -v -o "release/$output_name" -ldflags="-X main.Version=${{ env.VERSION }}"
-          
-            # Create checksum
-            cd release
+
+            # Create checksum without changing directories
+            pushd release
             sha256sum "$output_name" > "${output_name}.sha256"
-            cd ..
+            popd
           done
+
+          ls -la release/
 
       - name: Prepare config.json.example
         run: |
@@ -112,17 +117,23 @@ jobs:
 
       - name: Create archive files
         run: |
+          ls -la release/  # Debug: list all files
           cd release
           
-          # Linux and macOS archives (tar.gz)
-          tar -czf neoprotect-notifier-linux-amd64.tar.gz neoprotect-notifier-linux-amd64 neoprotect-notifier-linux-amd64.sha256 config.json.example
-          tar -czf neoprotect-notifier-linux-arm64.tar.gz neoprotect-notifier-linux-arm64 neoprotect-notifier-linux-arm64.sha256 config.json.example
-          tar -czf neoprotect-notifier-darwin-amd64.tar.gz neoprotect-notifier-darwin-amd64 neoprotect-notifier-darwin-amd64.sha256 config.json.example
-          tar -czf neoprotect-notifier-darwin-arm64.tar.gz neoprotect-notifier-darwin-arm64 neoprotect-notifier-darwin-arm64.sha256 config.json.example
+          # Create archives only if files exist
+          for PLATFORM in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64; do
+            if [ -f "neoprotect-notifier-$PLATFORM" ] && [ -f "neoprotect-notifier-$PLATFORM.sha256" ]; then
+              tar -czf "neoprotect-notifier-$PLATFORM.tar.gz" "neoprotect-notifier-$PLATFORM" "neoprotect-notifier-$PLATFORM.sha256" config.json.example
+            else
+              echo "Warning: Missing files for $PLATFORM"
+            fi
+          done
           
-          # Windows archive (zip)
-          apt-get update && apt-get install -y zip
-          zip neoprotect-notifier-windows-amd64.zip neoprotect-notifier-windows-amd64.exe neoprotect-notifier-windows-amd64.exe.sha256 config.json.example
+          # Windows archive
+          if [ -f "neoprotect-notifier-windows-amd64.exe" ]; then
+            apt-get update && apt-get install -y zip
+            zip neoprotect-notifier-windows-amd64.zip neoprotect-notifier-windows-amd64.exe neoprotect-notifier-windows-amd64.exe.sha256 config.json.example
+          fi
 
       - name: Create Release
         id: create_release
