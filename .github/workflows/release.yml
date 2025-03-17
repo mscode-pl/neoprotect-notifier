@@ -25,50 +25,40 @@ jobs:
         id: get_version
         run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
 
-      - name: Set up build matrix
-        id: setup_matrix
-        run: |
-          echo "matrix<<EOF" >> $GITHUB_OUTPUT
-          cat << 'JSON_EOF' >> $GITHUB_OUTPUT
-          [
-            {"GOOS": "linux", "GOARCH": "amd64", "extension": ""},
-            {"GOOS": "linux", "GOARCH": "arm64", "extension": ""},
-            {"GOOS": "darwin", "GOARCH": "amd64", "extension": ""},
-            {"GOOS": "darwin", "GOARCH": "arm64", "extension": ""},
-            {"GOOS": "windows", "GOARCH": "amd64", "extension": ".exe"}
-          ]
-          JSON_EOF
-          echo "EOF" >> $GITHUB_OUTPUT
-
       - name: Build for multiple platforms
         id: build_release
         run: |
           mkdir -p release
-
-          # For debugging
-          echo "Matrix content: ${{ steps.setup_matrix.outputs.matrix }}"
-
-          echo "${{ steps.setup_matrix.outputs.matrix }}" | jq -c '.[]' | while read -r os_arch; do
-            GOOS=$(echo $os_arch | jq -r '.GOOS')
-            GOARCH=$(echo $os_arch | jq -r '.GOARCH')
-            EXT=$(echo $os_arch | jq -r '.extension')
-
+          
+          # Define platforms array directly in bash
+          platforms=(
+            "linux,amd64,"
+            "linux,arm64,"
+            "darwin,amd64,"
+            "darwin,arm64,"
+            "windows,amd64,.exe"
+          )
+          
+          # Loop through platforms
+          for platform in "${platforms[@]}"; do
+            IFS=',' read -r GOOS GOARCH EXT <<< "$platform"
+          
             echo "Building for $GOOS/$GOARCH..."
-
+          
             # Set environment variables for this build
             export GOOS=$GOOS
             export GOARCH=$GOARCH
-
+          
             # Build the application
             output_name="neoprotect-notifier-$GOOS-$GOARCH$EXT"
             go build -v -o "release/$output_name" -ldflags="-X main.Version=${{ env.VERSION }}"
-
-            # Create checksum without changing directories
+          
+            # Create checksum
             pushd release
             sha256sum "$output_name" > "${output_name}.sha256"
             popd
           done
-
+          
           ls -la release/
 
       - name: Prepare config.json.example
@@ -117,12 +107,12 @@ jobs:
 
       - name: Create archive files
         run: |
-          ls -la release/  # Debug: list all files
           cd release
           
-          # Create archives only if files exist
+          # Create archives for Unix platforms
           for PLATFORM in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64; do
             if [ -f "neoprotect-notifier-$PLATFORM" ] && [ -f "neoprotect-notifier-$PLATFORM.sha256" ]; then
+              echo "Creating archive for $PLATFORM"
               tar -czf "neoprotect-notifier-$PLATFORM.tar.gz" "neoprotect-notifier-$PLATFORM" "neoprotect-notifier-$PLATFORM.sha256" config.json.example
             else
               echo "Warning: Missing files for $PLATFORM"
@@ -131,9 +121,16 @@ jobs:
           
           # Windows archive
           if [ -f "neoprotect-notifier-windows-amd64.exe" ]; then
+            echo "Creating archive for windows-amd64"
             apt-get update && apt-get install -y zip
             zip neoprotect-notifier-windows-amd64.zip neoprotect-notifier-windows-amd64.exe neoprotect-notifier-windows-amd64.exe.sha256 config.json.example
+          else
+            echo "Warning: Missing files for windows-amd64"
           fi
+          
+          # List created archives
+          echo "Created archives:"
+          ls -la *.tar.gz *.zip 2>/dev/null || echo "No archives created"
 
       - name: Create Release
         id: create_release
