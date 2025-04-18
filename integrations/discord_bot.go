@@ -320,6 +320,33 @@ func (d *DiscordBotIntegration) registerCommands() error {
 	return nil
 }
 
+func (d *DiscordBotIntegration) formatBPS(bps uint64) string {
+	if bps < 1000 {
+		return fmt.Sprintf("%d bps", bps)
+	} else if bps < 1000000 {
+		return fmt.Sprintf("%.2f Kbps", float64(bps)/1000)
+	} else if bps < 1000000000 {
+		return fmt.Sprintf("%.2f Mbps", float64(bps)/1000000)
+	} else if bps < 1000000000000 {
+		return fmt.Sprintf("%.2f Gbps", float64(bps)/1000000000)
+	} else {
+		return fmt.Sprintf("%.2f Tbps", float64(bps)/1000000000000)
+	}
+}
+
+// formatPPS formats packets per second with appropriate units (pps, Kpps, Mpps, Gpps)
+func (d *DiscordBotIntegration) formatPPS(pps uint64) string {
+	if pps < 1000 {
+		return fmt.Sprintf("%d pps", pps)
+	} else if pps < 1000000 {
+		return fmt.Sprintf("%.2f Kpps", float64(pps)/1000)
+	} else if pps < 1000000000 {
+		return fmt.Sprintf("%.2f Mpps", float64(pps)/1000000)
+	} else {
+		return fmt.Sprintf("%.2f Gpps", float64(pps)/1000000000)
+	}
+}
+
 // createAttackEmbed creates a Discord embed for an attack notification
 func (d *DiscordBotIntegration) createAttackEmbed(attack *neoprotect.Attack, previous *neoprotect.Attack, color int, title string) DiscordEmbed {
 	var description string
@@ -340,14 +367,14 @@ func (d *DiscordBotIntegration) createAttackEmbed(attack *neoprotect.Attack, pre
 			Inline: true,
 		},
 		{
-			Name:   "Attack ID",
-			Value:  attack.ID,
+			Name:   "Peak Traffic",
+			Value:  fmt.Sprintf("%s / %s", d.formatBPS(uint64(attack.GetPeakBPS())), d.formatPPS(uint64(attack.GetPeakPPS()))),
 			Inline: true,
 		},
 		{
-			Name:   "Peak Traffic",
-			Value:  fmt.Sprintf("%d bps / %d pps", attack.GetPeakBPS(), attack.GetPeakPPS()),
-			Inline: true,
+			Name:   "Attack ID",
+			Value:  attack.ID,
+			Inline: false,
 		},
 		{
 			Name:   "Attack Signatures",
