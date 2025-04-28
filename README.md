@@ -17,14 +17,15 @@ A real-time monitoring and notification system for DDoS attacks detected by the 
 
 ## 🔔 Integration Expansion
 
-| Integration        |       Status       | Priority | Notes                                           |
-|:-------------------|:------------------:|:--------:|:------------------------------------------------|
-| 🤖 Discord Bot     | 🟡 Partially Ready |   High   | Fully implemented and tested (without commands) |
-| 📢 Discord Webhook | 🟡 Partially Ready |  Medium  | Needs thorough testing                          |
-| 📨 Telegram        |   🔲 Not Started   |  Medium  | Planned                                         |
-| 📧 SMTP Email      |   🔲 Not Started   |  Medium  | Planned                                         |
-| 📱 SMS Alerts      |   🔲 Not Started   |   Low    | Planned                                         |
-| 🌐 Custom Webhook  | 🟡 Partially Ready |   Low    | Basic implementation requires refinement        |
+| Integration        |     Status     | Priority | Notes                                    |
+|:-------------------|:--------------:|:--------:|:-----------------------------------------|
+| 🤖 Discord Bot     |    ✅ Ready     |   High   | Fully implemented and tested             |
+| 📢 Discord Webhook |    ✅ Ready     |  Medium  | Needs thorough testing                   |
+| 📨 Telegram        | 🔲 Not Started |  Medium  | Planned                                  |
+| 📧 SMTP Email      | 🔲 Not Started |  Medium  | Planned                                  |
+| 📱 SMS Alerts      | 🔲 Not Started |   Low    | Planned                                  |
+| 💻 MS Teams        | 🔲 Not Started |   Low    | Planned                                  |
+| 🌐 Custom Webhook  |    🧪 BETA     |   Low    | Basic implementation requires refinement |
 
 ## 🛠️ Platform & Infrastructure Improvements
 
@@ -49,7 +50,7 @@ A real-time monitoring and notification system for DDoS attacks detected by the 
 - 🌟 Medium Priority
 - 💡 Low Priority
 
-**Last Updated**: 17 March 2024 01:10 Europe/Warsaw
+**Last Updated**: 28 April 2025 12:45 Europe/Warsaw
 
 ## 🚀 Quick Start
 
