@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	_ "fmt"
 	"log"
@@ -49,6 +50,9 @@ func main() {
 		log.Fatalf("Failed to initialize integrations: %v", err)
 	}
 
+	log.Println("Setting NeoProtect API client on integrations...")
+	integrationManager.SetAPIClient(client)
+
 	// Start the monitoring process
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -64,6 +68,7 @@ func main() {
 	// Wait for termination signal
 	<-sigChan
 	log.Println("Received termination signal, shutting down...")
+	integrationManager.Shutdown()
 	cancel()
 
 	// Wait for all goroutines to finish
@@ -119,7 +124,7 @@ func fetchAndProcessActiveAttacks(ctx context.Context, client *neoprotect.Client
 		for _, ip := range ipsToMonitor {
 			ipAttack, err := client.GetActiveAttack(ctx, ip)
 			if err != nil {
-				if err != neoprotect.ErrNoActiveAttack {
+				if !errors.Is(err, neoprotect.ErrNoActiveAttack) {
 					log.Printf("Error fetching active attack for IP %s: %v", ip, err)
 				}
 				continue

@@ -71,16 +71,32 @@ func (m *Manager) InitializeIntegrations(cfg *config.Config) error {
 	for name, integration := range m.integrations {
 		var rawConfig map[string]interface{}
 
-		if configData, ok := cfg.IntegrationConfigs[name]; ok {
+		// Special handling for integrations that don't need configuration
+		if name == "console" {
+			// Console integration can work with empty config
+			if configData, ok := cfg.IntegrationConfigs[name]; ok {
+				if err := json.Unmarshal(configData, &rawConfig); err != nil {
+					return fmt.Errorf("failed to unmarshal config for %s: %w", name, err)
+				}
+			} else {
+				// Provide default empty config for console
+				rawConfig = make(map[string]interface{})
+				log.Printf("Using default configuration for console integration")
+			}
+		} else {
+			// Normal handling for other integrations that require configuration
+			configData, ok := cfg.IntegrationConfigs[name]
+			if !ok {
+				return fmt.Errorf("no configuration found for %s integration", name)
+			}
+
 			if err := json.Unmarshal(configData, &rawConfig); err != nil {
 				return fmt.Errorf("failed to unmarshal config for %s: %w", name, err)
 			}
+		}
 
-			if err := integration.Initialize(rawConfig); err != nil {
-				return fmt.Errorf("failed to initialize %s integration: %w", name, err)
-			}
-		} else {
-			log.Printf("Warning: No configuration found for %s integration", name)
+		if err := integration.Initialize(rawConfig); err != nil {
+			return fmt.Errorf("failed to initialize %s integration: %w", name, err)
 		}
 	}
 
@@ -311,4 +327,41 @@ func isEnabled(name string, enabledIntegrations []string) bool {
 		}
 	}
 	return false
+}
+
+func (m *Manager) Shutdown() {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	for name, integration := range m.integrations {
+		if discordBot, ok := integration.(*DiscordBotIntegration); ok {
+			log.Printf("Shutting down Discord bot integration: %s", name)
+			discordBot.Shutdown()
+		}
+	}
+}
+
+func (m *Manager) SetAPIClient(client *neoprotect.Client) {
+	if client == nil {
+		log.Println("Error: Cannot set nil NeoProtect client on integrations")
+		return
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	discordBotCount := 0
+	for name, integration := range m.integrations {
+		if discordBot, ok := integration.(*DiscordBotIntegration); ok {
+			discordBotCount++
+			log.Printf("Setting API client for %s integration", name)
+			discordBot.neoprotectAPI = client // Directly set the client
+		}
+	}
+
+	if discordBotCount == 0 {
+		log.Println("Warning: No Discord bot integrations found to set API client on")
+	} else {
+		log.Printf("Set API client on %d Discord bot integration(s)", discordBotCount)
+	}
 }

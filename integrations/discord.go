@@ -45,6 +45,7 @@ type DiscordEmbed struct {
 	Image       *DiscordImage  `json:"image,omitempty"`
 	Footer      *DiscordFooter `json:"footer,omitempty"`
 	Timestamp   string         `json:"timestamp,omitempty"`
+	Author      *DiscordAuthor `json:"author,omitempty"`
 }
 
 // DiscordField represents a field in a Discord embed
@@ -60,6 +61,12 @@ type DiscordImage struct {
 
 type DiscordFooter struct {
 	Text    string `json:"text,omitempty"`
+	IconURL string `json:"icon_url,omitempty"`
+}
+
+type DiscordAuthor struct {
+	Name    string `json:"name,omitempty"`
+	URL     string `json:"url,omitempty"`
 	IconURL string `json:"icon_url,omitempty"`
 }
 
@@ -79,14 +86,13 @@ func (d *DiscordIntegration) Initialize(rawConfig map[string]interface{}) error 
 		return fmt.Errorf("failed to unmarshal Discord config: %w", err)
 	}
 
-	// In the Initialize method, add URL validation
+	// Validate webhook URL
 	d.webhookURL = config.WebhookURL
 	if d.webhookURL == "" || (!strings.HasPrefix(d.webhookURL, "http://") && !strings.HasPrefix(d.webhookURL, "https://")) {
 		return fmt.Errorf("invalid discord webhook URL: must be a valid HTTP/HTTPS URL")
 	}
 
-	// Add extra logging to debug
-	log.Printf("Discord integration initialized with webhook URL: %s", d.webhookURL)
+	log.Printf("Discord integration initializing with webhook URL: %s", d.webhookURL)
 
 	if config.Username == "" {
 		config.Username = "NeoProtect Monitor"
@@ -97,60 +103,49 @@ func (d *DiscordIntegration) Initialize(rawConfig map[string]interface{}) error 
 		timeout = config.Timeout
 	}
 
-	d.webhookURL = config.WebhookURL
 	d.username = config.Username
 	d.avatarURL = config.AvatarURL
 	d.client = &http.Client{
 		Timeout: time.Duration(timeout) * time.Second,
 	}
 
+	log.Printf("Discord integration initialized successfully")
 	return nil
 }
 
 // NotifyNewAttack sends a Discord notification for a new attack
 func (d *DiscordIntegration) NotifyNewAttack(ctx context.Context, attack *neoprotect.Attack) (string, error) {
-	content := ":rotating_light: **New DDoS Attack Detected!** :rotating_light:"
-
 	embed := d.createAttackEmbed(attack, nil, DiscordColorRed, "New DDoS Attack Detected")
 
 	message := &DiscordMessage{
 		Username:  d.username,
 		AvatarURL: d.avatarURL,
-		Content:   content,
 		Embeds:    []DiscordEmbed{embed},
 	}
 
-	// Discord webhook doesn't return message IDs, so we can't track them
 	return "", d.sendDiscordMessage(ctx, message)
 }
 
 // NotifyAttackUpdate sends a Discord notification for an attack update
 func (d *DiscordIntegration) NotifyAttackUpdate(ctx context.Context, attack *neoprotect.Attack, previous *neoprotect.Attack, messageID string) error {
-	content := ":chart_with_upwards_trend: **DDoS Attack Update** :chart_with_downwards_trend:"
-
 	embed := d.createAttackEmbed(attack, previous, DiscordColorYellow, "DDoS Attack Updated")
 
 	message := &DiscordMessage{
 		Username:  d.username,
 		AvatarURL: d.avatarURL,
-		Content:   content,
 		Embeds:    []DiscordEmbed{embed},
 	}
 
-	// Send the message
 	return d.sendDiscordMessage(ctx, message)
 }
 
 // NotifyAttackEnded sends a Discord notification for an attack that has ended
 func (d *DiscordIntegration) NotifyAttackEnded(ctx context.Context, attack *neoprotect.Attack, messageID string) error {
-	content := ":white_check_mark: **DDoS Attack Ended** :shield:"
-
 	embed := d.createAttackEmbed(attack, nil, DiscordColorGreen, "DDoS Attack Ended")
 
 	message := &DiscordMessage{
 		Username:  d.username,
 		AvatarURL: d.avatarURL,
-		Content:   content,
 		Embeds:    []DiscordEmbed{embed},
 	}
 
@@ -159,35 +154,37 @@ func (d *DiscordIntegration) NotifyAttackEnded(ctx context.Context, attack *neop
 
 // createAttackEmbed creates a Discord embed for an attack notification
 func (d *DiscordIntegration) createAttackEmbed(attack *neoprotect.Attack, previous *neoprotect.Attack, color int, title string) DiscordEmbed {
-	var description string
+	var description strings.Builder
+
+	// Create a more visually appealing description
 	if attack.StartedAt != nil {
-		description = fmt.Sprintf("**Started:** %s", attack.StartedAt.Format(time.RFC3339))
+		description.WriteString("## Attack Timeline\n")
+		description.WriteString(fmt.Sprintf("**🕒 Started:** %s\n", attack.StartedAt.Format(time.RFC3339)))
 
 		if attack.EndedAt != nil {
-			description += fmt.Sprintf("\n**Ended:** %s\n**Duration:** %s",
-				attack.EndedAt.Format(time.RFC3339),
-				attack.Duration().String())
+			description.WriteString(fmt.Sprintf("**🛑 Ended:** %s\n", attack.EndedAt.Format(time.RFC3339)))
+			description.WriteString(fmt.Sprintf("**⏱️ Duration:** %s\n", attack.Duration().String()))
+		} else {
+			description.WriteString("**⚠️ Status:** Active\n")
+			description.WriteString(fmt.Sprintf("**⏱️ Duration so far:** %s\n", attack.Duration().String()))
 		}
 	}
 
+	// Add IP target and attack ID information
+	description.WriteString("## Attack Details\n")
+	description.WriteString(fmt.Sprintf("**🎯 Target IP:** `%s`\n", attack.DstAddressString))
+	description.WriteString(fmt.Sprintf("**🔍 Attack ID:** `%s`\n", attack.ID))
+
 	fields := []DiscordField{
 		{
-			Name:   "Target IP",
-			Value:  attack.DstAddressString,
-			Inline: true,
+			Name: "📊 Traffic Statistics",
+			Value: fmt.Sprintf("**Peak Bandwidth:** %s\n**Peak Packet Rate:** %s",
+				formatBPS(attack.GetPeakBPS()),
+				formatPPS(attack.GetPeakPPS())),
+			Inline: false,
 		},
 		{
-			Name:   "Attack ID",
-			Value:  attack.ID,
-			Inline: true,
-		},
-		{
-			Name:   "Peak Traffic",
-			Value:  fmt.Sprintf("%d bps / %d pps", attack.GetPeakBPS(), attack.GetPeakPPS()),
-			Inline: true,
-		},
-		{
-			Name:   "Attack Signatures",
+			Name:   "🔎 Attack Signatures",
 			Value:  d.formatSignatures(attack),
 			Inline: false,
 		},
@@ -197,17 +194,54 @@ func (d *DiscordIntegration) createAttackEmbed(attack *neoprotect.Attack, previo
 	if previous != nil {
 		diff := attack.CalculateDiff(previous)
 		if len(diff) > 0 {
-			diffText := "```\n"
-			for key, value := range diff {
-				diffText += fmt.Sprintf("%s: %v\n", key, value)
-			}
-			diffText += "```"
+			var changesBuilder strings.Builder
 
-			fields = append(fields, DiscordField{
-				Name:   "Changes Detected",
-				Value:  diffText,
-				Inline: false,
-			})
+			// BPS changes
+			if bpsChange, ok := diff["bpsPeakChange"].(int64); ok {
+				var changeSymbol string
+				if bpsChange > 0 {
+					changeSymbol = "📈"
+				} else {
+					changeSymbol = "📉"
+				}
+				changesBuilder.WriteString(fmt.Sprintf("%s **Bandwidth:** %s → %s (%+d%%)\n",
+					changeSymbol,
+					formatBPS(previous.GetPeakBPS()),
+					formatBPS(attack.GetPeakBPS()),
+					calculatePercentageChange(previous.GetPeakBPS(), attack.GetPeakBPS())))
+			}
+
+			// PPS changes
+			if ppsChange, ok := diff["ppsPeakChange"].(int64); ok {
+				var changeSymbol string
+				if ppsChange > 0 {
+					changeSymbol = "📈"
+				} else {
+					changeSymbol = "📉"
+				}
+				changesBuilder.WriteString(fmt.Sprintf("%s **Packet Rate:** %s → %s (%+d%%)\n",
+					changeSymbol,
+					formatPPS(previous.GetPeakPPS()),
+					formatPPS(attack.GetPeakPPS()),
+					calculatePercentageChange(previous.GetPeakPPS(), attack.GetPeakPPS())))
+			}
+
+			// New signatures
+			if newSigs, ok := diff["newSignatures"].([]string); ok && len(newSigs) > 0 {
+				changesBuilder.WriteString("**⚠️ New Attack Signatures:**\n")
+				for _, sig := range newSigs {
+					changesBuilder.WriteString(fmt.Sprintf("• %s\n", sig))
+				}
+			}
+
+			// Add the change field if we have content
+			if changesBuilder.Len() > 0 {
+				fields = append(fields, DiscordField{
+					Name:   "📝 Changes Detected",
+					Value:  changesBuilder.String(),
+					Inline: false,
+				})
+			}
 		}
 	}
 
@@ -217,13 +251,13 @@ func (d *DiscordIntegration) createAttackEmbed(attack *neoprotect.Attack, previo
 	}
 
 	footer := &DiscordFooter{
-		Text:    "NeoProtect Attack Monitor",
-		IconURL: "https://neoprotect.net/favicon.ico",
+		Text:    "NeoProtect Monitor Bot",
+		IconURL: "https://cms.mscode.pl/uploads/icon_blue_84fa10dde8.png",
 	}
 
 	embed := DiscordEmbed{
 		Title:       title,
-		Description: description,
+		Description: description.String(),
 		Color:       color,
 		Fields:      fields,
 		Footer:      footer,
@@ -237,15 +271,15 @@ func (d *DiscordIntegration) createAttackEmbed(attack *neoprotect.Attack, previo
 func (d *DiscordIntegration) formatSignatures(attack *neoprotect.Attack) string {
 	names := attack.GetSignatureNames()
 	if len(names) == 0 {
-		return "Unknown"
+		return "No signatures detected"
 	}
 
-	result := ""
+	var result strings.Builder
 	for _, name := range names {
-		result += "• " + name + "\n"
+		result.WriteString(fmt.Sprintf("• %s\n", name))
 	}
 
-	return result
+	return result.String()
 }
 
 // sendDiscordMessage sends a message to Discord
@@ -288,5 +322,6 @@ func (d *DiscordIntegration) sendDiscordMessage(ctx context.Context, message *Di
 		return fmt.Errorf("discord request failed with status code %d: %s", resp.StatusCode, string(body))
 	}
 
+	log.Printf("Discord message sent successfully")
 	return nil
 }
