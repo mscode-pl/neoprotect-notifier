@@ -86,7 +86,8 @@ jobs:
                 "token": "YOUR_DISCORD_BOT_TOKEN",
                 "clientId": "YOUR_DISCORD_CLIENT_ID",
                 "guildId": "YOUR_DISCORD_GUILD_ID",
-                "channelId": "YOUR_DISCORD_CHANNEL_ID"
+                "channelId": "YOUR_DISCORD_CHANNEL_ID",
+                "allowedRoles": ["ROLE_ID_1", "ROLE_ID_2", "ROLE_ID_3"]
               },
               "webhook": {
                 "url": "https://your-webhook-endpoint.com/notify",

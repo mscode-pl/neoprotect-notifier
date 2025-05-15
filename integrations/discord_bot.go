@@ -27,15 +27,17 @@ type DiscordBotIntegration struct {
 	messageMutex  sync.RWMutex
 	neoprotectAPI *neoprotect.Client
 	dg            *discordgo.Session
+	allowedRoles  []string
 }
 
 type DiscordBotConfig struct {
-	Token     string `json:"token"`
-	ClientID  string `json:"clientId"`
-	GuildID   string `json:"guildId"`
-	ChannelID string `json:"channelId"`
-	Username  string `json:"username"`
-	AvatarURL string `json:"avatarUrl"`
+	Token        string   `json:"token"`
+	ClientID     string   `json:"clientId"`
+	GuildID      string   `json:"guildId"`
+	ChannelID    string   `json:"channelId"`
+	Username     string   `json:"username"`
+	AvatarURL    string   `json:"avatarUrl"`
+	AllowedRoles []string `json:"allowedRoles"`
 }
 
 func (d *DiscordBotIntegration) Name() string {
@@ -56,7 +58,6 @@ func (d *DiscordBotIntegration) Initialize(rawConfig map[string]interface{}) err
 	if config.Token == "" {
 		return fmt.Errorf("bot token must be provided")
 	}
-
 	if config.ChannelID == "" {
 		return fmt.Errorf("channel ID must be provided")
 	}
@@ -67,6 +68,13 @@ func (d *DiscordBotIntegration) Initialize(rawConfig map[string]interface{}) err
 	d.channelID = config.ChannelID
 	d.username = config.Username
 	d.attackCache = make(map[string]string)
+	d.allowedRoles = config.AllowedRoles
+
+	if len(d.allowedRoles) > 0 {
+		log.Printf("Role-based permissions enabled. Allowed roles: %v", d.allowedRoles)
+	} else {
+		log.Printf("Role-based permissions disabled. All users can use commands.")
+	}
 
 	dg, err := discordgo.New("Bot " + config.Token)
 	if err != nil {
@@ -101,7 +109,33 @@ func (d *DiscordBotIntegration) Initialize(rawConfig map[string]interface{}) err
 	return nil
 }
 
-func (d *DiscordBotIntegration) handleReady(s *discordgo.Session, r *discordgo.Ready) {
+func (d *DiscordBotIntegration) hasAllowedRole(i *discordgo.InteractionCreate) bool {
+	if len(d.allowedRoles) == 0 {
+		return true
+	}
+
+	if i.GuildID == "" {
+		log.Printf("Command used in DM, can't check roles")
+		return false
+	}
+
+	if i.Member == nil {
+		log.Printf("No member object available, can't check roles")
+		return false
+	}
+
+	for _, userRoleID := range i.Member.Roles {
+		for _, allowedRoleID := range d.allowedRoles {
+			if userRoleID == allowedRoleID {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func (d *DiscordBotIntegration) handleReady(s *discordgo.Session) {
 	log.Println("Discord bot is now ready!")
 
 	err := s.UpdateGameStatus(0, "Monitoring DDoS attacks")
@@ -175,6 +209,21 @@ func (d *DiscordBotIntegration) handleInteractionCreate(s *discordgo.Session, i 
 	}
 
 	log.Printf("Received command: %s", i.ApplicationCommandData().Name)
+
+	if !d.hasAllowedRole(i) {
+		log.Printf("User %s doesn't have any of the allowed roles to use commands", i.Member.User.Username)
+		err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "❌ You don't have permission to use this command. Please contact an administrator.",
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
+		if err != nil {
+			log.Printf("Error responding to unauthorized interaction: %v", err)
+		}
+		return
+	}
 
 	switch i.ApplicationCommandData().Name {
 	case "attack":
@@ -695,30 +744,6 @@ func (d *DiscordBotIntegration) handleStatsCommand(s *discordgo.Session, i *disc
 	}
 }
 
-func respondWithMessage(s *discordgo.Session, i *discordgo.InteractionCreate, message string) {
-	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Content: message,
-		},
-	})
-	if err != nil {
-		log.Printf("Error responding to interaction with message: %v", err)
-	}
-}
-
-func respondWithError(s *discordgo.Session, i *discordgo.InteractionCreate, errorMsg string) {
-	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Content: errorMsg,
-		},
-	})
-	if err != nil {
-		log.Printf("Error responding to interaction with error message: %v", err)
-	}
-}
-
 func (d *DiscordBotIntegration) NotifyNewAttack(ctx context.Context, attack *neoprotect.Attack) (string, error) {
 	if d.dg == nil {
 		return "", fmt.Errorf("discord session not initialized")
@@ -1042,8 +1067,4 @@ func (d *DiscordBotIntegration) Shutdown() {
 		d.dg = nil
 		log.Println("Discord bot integration shutdown complete")
 	}
-}
-
-func SetNeoprotectClient(d *DiscordBotIntegration, client *neoprotect.Client) {
-	d.neoprotectAPI = client
 }
