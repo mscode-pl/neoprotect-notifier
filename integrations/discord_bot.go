@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -196,15 +197,21 @@ func (d *DiscordBotIntegration) handleInteractionCreate(s *discordgo.Session, i 
 }
 
 func (d *DiscordBotIntegration) handleAttackCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+	})
+
+	if err != nil {
+		log.Printf("Error acknowledging interaction: %v", err)
+		return
+	}
+
 	if d.neoprotectAPI == nil {
-		err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseChannelMessageWithSource,
-			Data: &discordgo.InteractionResponseData{
-				Content: "⚠️ NeoProtect API client is not configured for this bot.",
-			},
+		_, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+			Content: "⚠️ NeoProtect API client is not configured for this bot.",
 		})
 		if err != nil {
-			log.Printf("Error responding to interaction: %v", err)
+			return
 		}
 		return
 	}
@@ -223,48 +230,238 @@ func (d *DiscordBotIntegration) handleAttackCommand(s *discordgo.Session, i *dis
 	defer cancel()
 
 	var attack *neoprotect.Attack
-	var err error
+	var fetchErr error
 
 	if attackID == "" {
 		ipAddresses, err := d.neoprotectAPI.GetIPAddresses(ctx)
 		if err != nil {
-			respondWithError(s, i, fmt.Sprintf("❌ Failed to fetch IP addresses: %v", err))
+			_, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+				Content: fmt.Sprintf("❌ Failed to fetch IP addresses: %v", err),
+			})
+			if err != nil {
+				return
+			}
 			return
 		}
 
 		for _, ip := range ipAddresses {
-			attack, err = d.neoprotectAPI.GetActiveAttack(ctx, ip.IPv4)
-			if err == nil && attack != nil {
+			attack, fetchErr = d.neoprotectAPI.GetActiveAttack(ctx, ip.IPv4)
+			if fetchErr == nil && attack != nil {
 				break
 			}
 		}
 
 		if attack == nil {
-			respondWithMessage(s, i, "✅ No active attacks found.")
+			_, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+				Content: "✅ No active attacks found.",
+			})
+			if err != nil {
+				return
+			}
 			return
 		}
 	} else {
-		respondWithMessage(s, i, "❌ Looking up attacks by ID is not currently supported. Please use `/history` to view recent attacks.")
+		_, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+			Content: "❌ Looking up attacks by ID is not currently supported. Please use `/history` to view recent attacks.",
+		})
+		if err != nil {
+			return
+		}
 		return
 	}
 
 	embed := d.createDiscordgoEmbed(attack, nil, 0x3498DB, "DDoS Attack Details")
 
-	err = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Embeds: []*discordgo.MessageEmbed{embed},
-		},
+	_, err = s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+		Embeds: []*discordgo.MessageEmbed{embed},
 	})
 	if err != nil {
-		log.Printf("Error responding to interaction with embed: %v", err)
+		log.Printf("Error sending followup message: %v", err)
+	}
+}
+
+func (d *DiscordBotIntegration) handleHistoryCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+	})
+
+	if err != nil {
+		log.Printf("Error acknowledging interaction: %v", err)
+		return
+	}
+
+	if d.neoprotectAPI == nil {
+		_, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+			Content: "⚠️ NeoProtect API client is not configured for this bot.",
+		})
+		if err != nil {
+			return
+		}
+		return
+	}
+
+	options := i.ApplicationCommandData().Options
+
+	limit := 5
+	for _, opt := range options {
+		if opt.Name == "limit" {
+			limit = int(opt.IntValue())
+			if limit < 1 {
+				limit = 1
+			} else if limit > 20 {
+				limit = 20
+			}
+			break
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	ipAddresses, err := d.neoprotectAPI.GetIPAddresses(ctx)
+	if err != nil {
+		_, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+			Content: fmt.Sprintf("❌ Failed to fetch IP addresses: %v", err),
+		})
+		if err != nil {
+			return
+		}
+		return
+	}
+
+	var allAttacks []*neoprotect.Attack
+	for _, ip := range ipAddresses {
+		if ip == nil || ip.IPv4 == "" {
+			continue
+		}
+
+		// Only get max 5 pages of attacks per IP to avoid timeouts
+		maxPages := 5
+		for page := 0; page < maxPages; page++ {
+			attacks, err := d.neoprotectAPI.GetAttacks(ctx, ip.IPv4, page)
+			if err != nil {
+				log.Printf("Warning: Failed to fetch attacks for IP %s, page %d: %v", ip.IPv4, page, err)
+				break
+			}
+
+			if len(attacks) == 0 {
+				break
+			}
+
+			allAttacks = append(allAttacks, attacks...)
+
+			// If we have enough attacks for our limit, stop fetching more
+			if len(allAttacks) >= limit*3 {
+				break
+			}
+		}
+
+		// If we have a good number of attacks, stop checking more IPs
+		if len(allAttacks) >= limit*2 {
+			break
+		}
+	}
+
+	// Sort attacks by start time (most recent first)
+	sort.Slice(allAttacks, func(i, j int) bool {
+		if allAttacks[i].StartedAt == nil {
+			return false
+		}
+		if allAttacks[j].StartedAt == nil {
+			return true
+		}
+		return allAttacks[i].StartedAt.After(*allAttacks[j].StartedAt)
+	})
+
+	if len(allAttacks) > limit {
+		allAttacks = allAttacks[:limit]
+	}
+
+	var description strings.Builder
+	description.WriteString(fmt.Sprintf("## Recent Attack History\n\n"))
+
+	if len(allAttacks) == 0 {
+		description.WriteString("No attack history found.")
+	} else {
+		for i, attack := range allAttacks {
+			if attack == nil || attack.StartedAt == nil {
+				continue
+			}
+
+			status := "✅ Ended"
+			duration := "N/A"
+			panelLink := fmt.Sprintf("https://panel.neoprotect.net/network/ips/%s?tab=attacks", attack.DstAddressString)
+
+			if attack.EndedAt != nil {
+				duration = attack.Duration().String()
+			} else {
+				status = "`🚨` Active"
+				duration = fmt.Sprintf("%s (ongoing)", attack.Duration().String())
+			}
+
+			description.WriteString(fmt.Sprintf("### %d. Attack on %s\n", i+1, attack.DstAddressString))
+			description.WriteString(fmt.Sprintf("**ID:** `%s`\n", attack.ID))
+			description.WriteString(fmt.Sprintf("**Started:** %s\n", attack.StartedAt.Format(time.RFC3339)))
+			description.WriteString(fmt.Sprintf("**Status:** %s\n", status))
+			description.WriteString(fmt.Sprintf("**Duration:** %s\n", duration))
+			description.WriteString(fmt.Sprintf("**Peak:** %s / %s\n",
+				formatBPS(attack.GetPeakBPS()),
+				formatPPS(attack.GetPeakPPS())))
+			description.WriteString(fmt.Sprintf("**Panel:** [View Details](%s)\n", panelLink))
+
+			signatures := attack.GetSignatureNames()
+			if len(signatures) > 0 {
+				description.WriteString("**Signatures:** ")
+				for j, sig := range signatures {
+					if j > 0 {
+						description.WriteString(", ")
+					}
+					description.WriteString(fmt.Sprintf("`%s`", sig))
+				}
+				description.WriteString("\n")
+			}
+
+			description.WriteString("\n")
+		}
+	}
+
+	embed := &discordgo.MessageEmbed{
+		Title:       "NeoProtect Attack History",
+		Description: description.String(),
+		Color:       0x3498DB,
+		Footer: &discordgo.MessageEmbedFooter{
+			Text:    fmt.Sprintf("Showing %d most recent attacks", len(allAttacks)),
+			IconURL: "https://cms.mscode.pl/uploads/icon_blue_84fa10dde8.png",
+		},
+		Timestamp: time.Now().Format(time.RFC3339),
+	}
+
+	_, err = s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+		Embeds: []*discordgo.MessageEmbed{embed},
+	})
+	if err != nil {
+		log.Printf("Error sending followup message: %v", err)
 	}
 }
 
 func (d *DiscordBotIntegration) handleStatsCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+	})
+
+	if err != nil {
+		log.Printf("Error acknowledging interaction: %v", err)
+		return
+	}
+
 	if d.neoprotectAPI == nil {
 		log.Printf("Error: NeoProtect API client is nil in handleStatsCommand")
-		respondWithMessage(s, i, "⚠️ NeoProtect API client is not available. Please check your configuration.")
+		_, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+			Content: "⚠️ NeoProtect API client is not available. Please check your configuration.",
+		})
+		if err != nil {
+			return
+		}
 		return
 	}
 
@@ -278,28 +475,49 @@ func (d *DiscordBotIntegration) handleStatsCommand(s *discordgo.Session, i *disc
 		}
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second) // Increase timeout
 	defer cancel()
 
-	if targetIP == "" {
-		ipAddresses, err := d.neoprotectAPI.GetIPAddresses(ctx)
+	ipAddresses, err := d.neoprotectAPI.GetIPAddresses(ctx)
+	if err != nil {
+		_, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+			Content: fmt.Sprintf("❌ Failed to fetch IP addresses: %v", err),
+		})
 		if err != nil {
-			respondWithError(s, i, fmt.Sprintf("❌ Failed to fetch IP addresses: %v", err))
 			return
 		}
+		return
+	}
 
+	if targetIP == "" {
 		var description strings.Builder
 
 		for _, ip := range ipAddresses {
-			attack, err := d.neoprotectAPI.GetActiveAttack(ctx, ip.IPv4)
-			status := "✅ No active attack"
-			if err == nil && attack != nil && attack.StartedAt != nil {
-				status = fmt.Sprintf("`🚨` Under attack since %s", attack.StartedAt.Format(time.RFC3339))
+			if ip == nil || ip.IPv4 == "" {
+				continue
 			}
 
-			// Add NeoProtect panel link
+			var status string
 			panelLink := fmt.Sprintf("https://panel.neoprotect.net/network/ips/%s?tab=attacks", ip.IPv4)
+
+			attack, err := d.neoprotectAPI.GetActiveAttack(ctx, ip.IPv4)
+			if err != nil {
+				if errors.Is(err, neoprotect.ErrNoActiveAttack) {
+					status = "✅ No active attack"
+				} else {
+					status = fmt.Sprintf("❓ Error checking status: %v", err)
+				}
+			} else if attack != nil && attack.StartedAt != nil {
+				status = fmt.Sprintf("`🚨` Under attack since %s", attack.StartedAt.Format(time.RFC3339))
+			} else {
+				status = "✅ No active attack"
+			}
+
 			description.WriteString(fmt.Sprintf("**IP:** `%s` | **Status:** %s | [View in Panel](%s)\n\n", ip.IPv4, status, panelLink))
+		}
+
+		if description.Len() == 0 {
+			description.WriteString("No IP addresses found in your account.")
 		}
 
 		embed := &discordgo.MessageEmbed{
@@ -313,39 +531,96 @@ func (d *DiscordBotIntegration) handleStatsCommand(s *discordgo.Session, i *disc
 			Timestamp: time.Now().Format(time.RFC3339),
 		}
 
-		err = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseChannelMessageWithSource,
-			Data: &discordgo.InteractionResponseData{
-				Embeds: []*discordgo.MessageEmbed{embed},
-			},
+		_, err = s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+			Embeds: []*discordgo.MessageEmbed{embed},
 		})
 		if err != nil {
-			log.Printf("Error responding to interaction with embed: %v", err)
+			log.Printf("Error sending followup message: %v", err)
 		}
+
 		return
 	} else {
 		ipPattern := regexp.MustCompile(`^(\d{1,3}\.){3}\d{1,3}$`)
 		if !ipPattern.MatchString(targetIP) {
-			respondWithMessage(s, i, "❌ Invalid IP address format. Please use dotted decimal notation (e.g., 192.168.1.1).")
+			_, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+				Content: "❌ Invalid IP address format. Please use dotted decimal notation (e.g., 192.168.1.1).",
+			})
+			if err != nil {
+				return
+			}
 			return
 		}
 
-		attack, err := d.neoprotectAPI.GetActiveAttack(ctx, targetIP)
+		ipExists := false
+		for _, ip := range ipAddresses {
+			if ip != nil && ip.IPv4 == targetIP {
+				ipExists = true
+				break
+			}
+		}
+
+		if !ipExists {
+			_, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+				Content: fmt.Sprintf("❌ IP address `%s` was not found in your NeoProtect account.", targetIP),
+			})
+			if err != nil {
+				log.Printf("Error sending IP not found message: %v", err)
+			}
+			return
+		}
+
+		var attack *neoprotect.Attack
 		notFoundError := false
+
+		attack, err = d.neoprotectAPI.GetActiveAttack(ctx, targetIP)
 		if err != nil {
 			if errors.Is(err, neoprotect.ErrNoActiveAttack) {
 				notFoundError = true
+				log.Printf("No active attack for IP %s", targetIP)
+			} else if strings.Contains(err.Error(), "status code 404") {
+				_, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+					Content: fmt.Sprintf("❌ IP address `%s` was not found in the NeoProtect system.", targetIP),
+				})
+				if err != nil {
+					log.Printf("Error sending IP not found message: %v", err)
+				}
+				return
 			} else {
-				respondWithError(s, i, fmt.Sprintf("❌ Failed to check attack status: %v", err))
+				_, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+					Content: fmt.Sprintf("❌ Failed to check attack status: %v", err),
+				})
+				if err != nil {
+					return
+				}
 				return
 			}
 		}
 
-		// Use pagination to get all attacks
-		attacks, err := d.neoprotectAPI.GetAllAttacksForIP(ctx, targetIP)
-		if err != nil {
-			respondWithError(s, i, fmt.Sprintf("❌ Failed to fetch attack history: %v", err))
-			return
+		var attacks []*neoprotect.Attack
+		maxPages := 20
+
+		for page := 0; page < maxPages; page++ {
+			pageAttacks, err := d.neoprotectAPI.GetAttacks(ctx, targetIP, page)
+			if err != nil {
+				if strings.Contains(err.Error(), "status code 404") {
+					log.Printf("Error: IP %s not found when fetching attack history", targetIP)
+					break
+				} else {
+					log.Printf("Error fetching attack history for IP %s, page %d: %v", targetIP, page, err)
+					break
+				}
+			}
+
+			if len(pageAttacks) == 0 {
+				break
+			}
+
+			attacks = append(attacks, pageAttacks...)
+
+			if len(attacks) >= 100 {
+				log.Printf("Collected 100 attack records for IP %s, stopping pagination", targetIP)
+				break
+			}
 		}
 
 		panelLink := fmt.Sprintf("https://panel.neoprotect.net/network/ips/%s?tab=attacks", targetIP)
@@ -354,7 +629,7 @@ func (d *DiscordBotIntegration) handleStatsCommand(s *discordgo.Session, i *disc
 		description.WriteString(fmt.Sprintf("## Statistics for IP: `%s`\n\n", targetIP))
 		description.WriteString(fmt.Sprintf("**`🔗`** [View in NeoProtect Panel](%s)\n\n", panelLink))
 
-		if attack != nil && !notFoundError {
+		if attack != nil && !notFoundError && attack.StartedAt != nil {
 			description.WriteString("**`🚨`** Current Status: Under Attack\n")
 			description.WriteString(fmt.Sprintf("**Attack Start:** %s\n", attack.StartedAt.Format(time.RFC3339)))
 			description.WriteString(fmt.Sprintf("**Duration:** %s\n", attack.Duration().String()))
@@ -364,15 +639,25 @@ func (d *DiscordBotIntegration) handleStatsCommand(s *discordgo.Session, i *disc
 			description.WriteString("**`✅`** Current Status: No Active Attack\n")
 		}
 
+		attackCount := len(attacks)
+		totalMessage := fmt.Sprintf("%d (showing latest %d)", attackCount, attackCount)
+		if attackCount >= 100 {
+			totalMessage = fmt.Sprintf("%d+ (showing latest %d, see panel for full history)", attackCount, attackCount)
+		}
+
 		description.WriteString(fmt.Sprintf("\n## Attack History\n\n"))
-		description.WriteString(fmt.Sprintf("**Total Attacks:** %d\n", len(attacks)))
+		description.WriteString(fmt.Sprintf("**Total Attacks:** %s\n", totalMessage))
 
 		var totalDuration time.Duration
 		var peakBPS int64
 		var peakPPS int64
 
 		for _, a := range attacks {
-			if a.EndedAt != nil {
+			if a == nil {
+				continue
+			}
+
+			if a.StartedAt != nil && a.EndedAt != nil {
 				totalDuration += a.Duration()
 			}
 
@@ -401,139 +686,12 @@ func (d *DiscordBotIntegration) handleStatsCommand(s *discordgo.Session, i *disc
 			Timestamp: time.Now().Format(time.RFC3339),
 		}
 
-		err = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseChannelMessageWithSource,
-			Data: &discordgo.InteractionResponseData{
-				Embeds: []*discordgo.MessageEmbed{embed},
-			},
+		_, err = s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+			Embeds: []*discordgo.MessageEmbed{embed},
 		})
 		if err != nil {
-			log.Printf("Error responding to interaction with embed: %v", err)
+			log.Printf("Error sending followup message: %v", err)
 		}
-	}
-}
-
-func (d *DiscordBotIntegration) handleHistoryCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	if d.neoprotectAPI == nil {
-		respondWithMessage(s, i, "⚠️ NeoProtect API client is not configured for this bot.")
-		return
-	}
-
-	options := i.ApplicationCommandData().Options
-
-	limit := 5
-	for _, opt := range options {
-		if opt.Name == "limit" {
-			limit = int(opt.IntValue())
-			if limit < 1 {
-				limit = 1
-			} else if limit > 20 {
-				limit = 20
-			}
-			break
-		}
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	ipAddresses, err := d.neoprotectAPI.GetIPAddresses(ctx)
-	if err != nil {
-		respondWithError(s, i, fmt.Sprintf("❌ Failed to fetch IP addresses: %v", err))
-		return
-	}
-
-	var allAttacks []*neoprotect.Attack
-	for _, ip := range ipAddresses {
-		// Use the new paginated method to get all attacks for this IP
-		attacks, err := d.neoprotectAPI.GetAllAttacksForIP(ctx, ip.IPv4)
-		if err != nil {
-			log.Printf("Warning: Failed to fetch attacks for IP %s: %v", ip.IPv4, err)
-			continue
-		}
-
-		allAttacks = append(allAttacks, attacks...)
-	}
-
-	// Sort attacks by start time (most recent first)
-	for i := 0; i < len(allAttacks); i++ {
-		for j := i + 1; j < len(allAttacks); j++ {
-			if allAttacks[i].StartedAt != nil && allAttacks[j].StartedAt != nil &&
-				allAttacks[i].StartedAt.Before(*allAttacks[j].StartedAt) {
-				allAttacks[i], allAttacks[j] = allAttacks[j], allAttacks[i]
-			}
-		}
-	}
-
-	if len(allAttacks) > limit {
-		allAttacks = allAttacks[:limit]
-	}
-
-	var description strings.Builder
-	description.WriteString(fmt.Sprintf("## Recent Attack History\n\n"))
-
-	if len(allAttacks) == 0 {
-		description.WriteString("No attack history found.")
-	} else {
-		for i, attack := range allAttacks {
-			status := "✅ Ended"
-			duration := "N/A"
-			panelLink := fmt.Sprintf("https://panel.neoprotect.net/network/ips/%s?tab=attacks", attack.DstAddressString)
-
-			if attack.StartedAt != nil {
-				if attack.EndedAt != nil {
-					duration = attack.Duration().String()
-				} else {
-					status = "`🚨` Active"
-					duration = fmt.Sprintf("%s (ongoing)", attack.Duration().String())
-				}
-
-				description.WriteString(fmt.Sprintf("### %d. Attack on %s\n", i+1, attack.DstAddressString))
-				description.WriteString(fmt.Sprintf("**ID:** `%s`\n", attack.ID))
-				description.WriteString(fmt.Sprintf("**Started:** %s\n", attack.StartedAt.Format(time.RFC3339)))
-				description.WriteString(fmt.Sprintf("**Status:** %s\n", status))
-				description.WriteString(fmt.Sprintf("**Duration:** %s\n", duration))
-				description.WriteString(fmt.Sprintf("**Peak:** %s / %s\n",
-					formatBPS(attack.GetPeakBPS()),
-					formatPPS(attack.GetPeakPPS())))
-				description.WriteString(fmt.Sprintf("**Panel:** [View Details](%s)\n", panelLink))
-
-				signatures := attack.GetSignatureNames()
-				if len(signatures) > 0 {
-					description.WriteString("**Signatures:** ")
-					for j, sig := range signatures {
-						if j > 0 {
-							description.WriteString(", ")
-						}
-						description.WriteString(fmt.Sprintf("`%s`", sig))
-					}
-					description.WriteString("\n")
-				}
-
-				description.WriteString("\n")
-			}
-		}
-	}
-
-	embed := &discordgo.MessageEmbed{
-		Title:       "NeoProtect Attack History",
-		Description: description.String(),
-		Color:       0x3498DB,
-		Footer: &discordgo.MessageEmbedFooter{
-			Text:    fmt.Sprintf("Showing %d of %d attacks", len(allAttacks), len(allAttacks)),
-			IconURL: "https://cms.mscode.pl/uploads/icon_blue_84fa10dde8.png",
-		},
-		Timestamp: time.Now().Format(time.RFC3339),
-	}
-
-	err = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Embeds: []*discordgo.MessageEmbed{embed},
-		},
-	})
-	if err != nil {
-		log.Printf("Error responding to interaction with embed: %v", err)
 	}
 }
 
