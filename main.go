@@ -34,13 +34,11 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Create NeoProtect API client
 	client, err := neoprotect.NewClient(cfg.APIKey, cfg.APIEndpoint)
 	if err != nil {
 		log.Fatalf("Failed to create NeoProtect client: %v", err)
 	}
 
-	// Initialize integration manager
 	integrationManager, err := integrations.NewManager("./integrations", cfg.EnabledIntegrations)
 	if err != nil {
 		log.Fatalf("Failed to initialize integration manager: %v", err)
@@ -53,7 +51,6 @@ func main() {
 	log.Println("Setting NeoProtect API client on integrations...")
 	integrationManager.SetAPIClient(client)
 
-	// Start the monitoring process
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
@@ -61,17 +58,14 @@ func main() {
 		monitorAttacks(ctx, client, integrationManager, cfg.PollInterval, cfg)
 	}()
 
-	// Set up signal handling for graceful shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	// Wait for termination signal
 	<-sigChan
 	log.Println("Received termination signal, shutting down...")
 	integrationManager.Shutdown()
 	cancel()
 
-	// Wait for all goroutines to finish
 	wg.Wait()
 	log.Println("Shutdown complete")
 }
@@ -80,18 +74,14 @@ func monitorAttacks(ctx context.Context, client *neoprotect.Client, manager *int
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 
-	// Keep track of known attacks to detect new ones and updates
 	knownAttacks := make(map[string]*neoprotect.Attack)
-	// Track message IDs for Discord integration (if available)
 	messageTracker := integrations.NewMessageTracker()
 
-	// Get IP addresses for monitoring
 	var ipsToMonitor []string
 	if cfg.MonitorMode == "specific" {
 		ipsToMonitor = cfg.SpecificIPs
 	}
 
-	// Initial fetch to populate known attacks (only active ones)
 	log.Println("Performing initial attack status fetch (active attacks only)")
 	fetchAndProcessActiveAttacks(ctx, client, manager, cfg.MonitorMode, ipsToMonitor, knownAttacks, messageTracker)
 
@@ -110,16 +100,13 @@ func fetchAndProcessActiveAttacks(ctx context.Context, client *neoprotect.Client
 	var attacks []*neoprotect.Attack
 	var err error
 
-	// Decide how to fetch attacks based on monitor mode
 	if monitorMode == "all" {
-		// Get only active attacks across all IPs
-		attacks, err = client.GetAllAttacks(ctx, true) // Set true to get only active attacks
+		attacks, err = client.GetAllAttacksAllPages(ctx, true)
 		if err != nil {
 			log.Printf("Error fetching active attacks: %v", err)
 			return
 		}
 	} else if monitorMode == "specific" {
-		// Get active attacks for specific IPs
 		var allAttacks []*neoprotect.Attack
 		for _, ip := range ipsToMonitor {
 			ipAttack, err := client.GetActiveAttack(ctx, ip)
@@ -141,16 +128,11 @@ func fetchAndProcessActiveAttacks(ctx context.Context, client *neoprotect.Client
 	}
 
 	processActiveAttacks(ctx, client, manager, attacks, knownAttacks, messageTracker)
-
-	// Check for ended attacks (attacks that are no longer active)
 	checkForEndedAttacks(ctx, manager, attacks, knownAttacks, messageTracker)
-
-	// Cleanup old ended attacks from memory
 	cleanupEndedAttacks(knownAttacks)
 }
 
 func processActiveAttacks(ctx context.Context, client *neoprotect.Client, manager *integrations.Manager, attacks []*neoprotect.Attack, knownAttacks map[string]*neoprotect.Attack, messageTracker *integrations.MessageTracker) {
-	// Create a map of seen attack IDs to track current active attacks
 	seenAttacks := make(map[string]bool)
 
 	for _, attack := range attacks {
@@ -162,7 +144,6 @@ func processActiveAttacks(ctx context.Context, client *neoprotect.Client, manage
 			log.Printf("New attack detected for IP %s: %s", attack.DstAddressString, attack.ID)
 			knownAttacks[attack.ID] = attack
 
-			// Send notification for new attack
 			messageID, err := manager.NotifyNewAttack(ctx, attack)
 			if err != nil {
 				log.Printf("Error notifying integrations about new attack: %v", err)
@@ -175,7 +156,6 @@ func processActiveAttacks(ctx context.Context, client *neoprotect.Client, manage
 			previousState := *existingAttack
 			knownAttacks[attack.ID] = attack
 
-			// Update existing notification
 			messageID := messageTracker.GetMessageID(attack.ID)
 			err := manager.NotifyAttackUpdate(ctx, attack, &previousState, messageID)
 			if err != nil {
@@ -186,29 +166,24 @@ func processActiveAttacks(ctx context.Context, client *neoprotect.Client, manage
 }
 
 func checkForEndedAttacks(ctx context.Context, manager *integrations.Manager, activeAttacks []*neoprotect.Attack, knownAttacks map[string]*neoprotect.Attack, messageTracker *integrations.MessageTracker) {
-	// Create a map of active attack IDs
 	activeAttackIDs := make(map[string]bool)
 	for _, attack := range activeAttacks {
 		activeAttackIDs[attack.ID] = true
 	}
 
-	// Check for attacks that were previously known but are no longer active
 	for id, attack := range knownAttacks {
 		if !activeAttackIDs[id] && attack.EndedAt == nil {
-			// This attack is no longer active but didn't have an end time
 			log.Printf("Attack implicitly ended for IP %s: %s", attack.DstAddressString, attack.ID)
 
 			now := time.Now()
 			attack.EndedAt = &now
 
-			// Send notification for ended attack
 			messageID := messageTracker.GetMessageID(attack.ID)
 			err := manager.NotifyAttackEnded(ctx, attack, messageID)
 			if err != nil {
 				log.Printf("Error notifying integrations about implicitly ended attack: %v", err)
 			}
 
-			// Mark attack as ended in our tracking map
 			knownAttacks[id] = attack
 		}
 	}

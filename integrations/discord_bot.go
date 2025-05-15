@@ -294,10 +294,12 @@ func (d *DiscordBotIntegration) handleStatsCommand(s *discordgo.Session, i *disc
 			attack, err := d.neoprotectAPI.GetActiveAttack(ctx, ip.IPv4)
 			status := "✅ No active attack"
 			if err == nil && attack != nil && attack.StartedAt != nil {
-				status = fmt.Sprintf("🚨 Under attack since %s", attack.StartedAt.Format(time.RFC3339))
+				status = fmt.Sprintf("`🚨` Under attack since %s", attack.StartedAt.Format(time.RFC3339))
 			}
 
-			description.WriteString(fmt.Sprintf("**IP:** `%s`\n**Status:** %s\n\n", ip.IPv4, status))
+			// Add NeoProtect panel link
+			panelLink := fmt.Sprintf("https://panel.neoprotect.net/network/ips/%s?tab=attacks", ip.IPv4)
+			description.WriteString(fmt.Sprintf("**IP:** `%s` | **Status:** %s | [View in Panel](%s)\n\n", ip.IPv4, status, panelLink))
 		}
 
 		embed := &discordgo.MessageEmbed{
@@ -339,23 +341,27 @@ func (d *DiscordBotIntegration) handleStatsCommand(s *discordgo.Session, i *disc
 			}
 		}
 
-		attacks, err := d.neoprotectAPI.GetAttacks(ctx, targetIP)
+		// Use pagination to get all attacks
+		attacks, err := d.neoprotectAPI.GetAllAttacksForIP(ctx, targetIP)
 		if err != nil {
 			respondWithError(s, i, fmt.Sprintf("❌ Failed to fetch attack history: %v", err))
 			return
 		}
 
+		panelLink := fmt.Sprintf("https://panel.neoprotect.net/network/ips/%s?tab=attacks", targetIP)
+
 		var description strings.Builder
 		description.WriteString(fmt.Sprintf("## Statistics for IP: `%s`\n\n", targetIP))
+		description.WriteString(fmt.Sprintf("**`🔗`** [View in NeoProtect Panel](%s)\n\n", panelLink))
 
 		if attack != nil && !notFoundError {
-			description.WriteString("**🚨 Current Status:** Under Attack\n")
+			description.WriteString("**`🚨`** Current Status: Under Attack\n")
 			description.WriteString(fmt.Sprintf("**Attack Start:** %s\n", attack.StartedAt.Format(time.RFC3339)))
 			description.WriteString(fmt.Sprintf("**Duration:** %s\n", attack.Duration().String()))
 			description.WriteString(fmt.Sprintf("**Peak Bandwidth:** %s\n", formatBPS(attack.GetPeakBPS())))
 			description.WriteString(fmt.Sprintf("**Peak Packet Rate:** %s\n", formatPPS(attack.GetPeakPPS())))
 		} else {
-			description.WriteString("**✅ Current Status:** No Active Attack\n")
+			description.WriteString("**`✅`** Current Status: No Active Attack\n")
 		}
 
 		description.WriteString(fmt.Sprintf("\n## Attack History\n\n"))
@@ -387,6 +393,7 @@ func (d *DiscordBotIntegration) handleStatsCommand(s *discordgo.Session, i *disc
 			Title:       "NeoProtect IP Statistics",
 			Description: description.String(),
 			Color:       0x3498DB,
+			URL:         panelLink,
 			Footer: &discordgo.MessageEmbedFooter{
 				Text:    "Use /history for detailed attack history",
 				IconURL: "https://cms.mscode.pl/uploads/icon_blue_84fa10dde8.png",
@@ -438,7 +445,8 @@ func (d *DiscordBotIntegration) handleHistoryCommand(s *discordgo.Session, i *di
 
 	var allAttacks []*neoprotect.Attack
 	for _, ip := range ipAddresses {
-		attacks, err := d.neoprotectAPI.GetAttacks(ctx, ip.IPv4)
+		// Use the new paginated method to get all attacks for this IP
+		attacks, err := d.neoprotectAPI.GetAllAttacksForIP(ctx, ip.IPv4)
 		if err != nil {
 			log.Printf("Warning: Failed to fetch attacks for IP %s: %v", ip.IPv4, err)
 			continue
@@ -447,6 +455,7 @@ func (d *DiscordBotIntegration) handleHistoryCommand(s *discordgo.Session, i *di
 		allAttacks = append(allAttacks, attacks...)
 	}
 
+	// Sort attacks by start time (most recent first)
 	for i := 0; i < len(allAttacks); i++ {
 		for j := i + 1; j < len(allAttacks); j++ {
 			if allAttacks[i].StartedAt != nil && allAttacks[j].StartedAt != nil &&
@@ -469,12 +478,13 @@ func (d *DiscordBotIntegration) handleHistoryCommand(s *discordgo.Session, i *di
 		for i, attack := range allAttacks {
 			status := "✅ Ended"
 			duration := "N/A"
+			panelLink := fmt.Sprintf("https://panel.neoprotect.net/network/ips/%s?tab=attacks", attack.DstAddressString)
 
 			if attack.StartedAt != nil {
 				if attack.EndedAt != nil {
 					duration = attack.Duration().String()
 				} else {
-					status = "🚨 Active"
+					status = "`🚨` Active"
 					duration = fmt.Sprintf("%s (ongoing)", attack.Duration().String())
 				}
 
@@ -486,6 +496,7 @@ func (d *DiscordBotIntegration) handleHistoryCommand(s *discordgo.Session, i *di
 				description.WriteString(fmt.Sprintf("**Peak:** %s / %s\n",
 					formatBPS(attack.GetPeakBPS()),
 					formatPPS(attack.GetPeakPPS())))
+				description.WriteString(fmt.Sprintf("**Panel:** [View Details](%s)\n", panelLink))
 
 				signatures := attack.GetSignatureNames()
 				if len(signatures) > 0 {
@@ -494,7 +505,7 @@ func (d *DiscordBotIntegration) handleHistoryCommand(s *discordgo.Session, i *di
 						if j > 0 {
 							description.WriteString(", ")
 						}
-						description.WriteString(sig)
+						description.WriteString(fmt.Sprintf("`%s`", sig))
 					}
 					description.WriteString("\n")
 				}
@@ -555,12 +566,11 @@ func (d *DiscordBotIntegration) NotifyNewAttack(ctx context.Context, attack *neo
 		return "", fmt.Errorf("discord session not initialized")
 	}
 
-	content := ":rotating_light: **New DDoS Attack Detected!** :rotating_light:"
-	embed := d.createDiscordgoEmbed(attack, nil, 0xFF0000, "New DDoS Attack Detected")
+	embed := d.createDiscordgoEmbed(attack, nil, 0xFF0000, "`🔥` New DDoS Attack Detected")
+	embeds := []*discordgo.MessageEmbed{embed}
 
 	msg, err := d.dg.ChannelMessageSendComplex(d.channelID, &discordgo.MessageSend{
-		Content: content,
-		Embeds:  []*discordgo.MessageEmbed{embed},
+		Embeds: embeds,
 	})
 	if err != nil {
 		return "", fmt.Errorf("failed to send Discord message: %w", err)
@@ -570,6 +580,25 @@ func (d *DiscordBotIntegration) NotifyNewAttack(ctx context.Context, attack *neo
 		d.messageMutex.Lock()
 		d.attackCache[attack.ID] = msg.ID
 		d.messageMutex.Unlock()
+
+		go func() {
+			time.Sleep(5 * time.Second)
+
+			embed.Timestamp = time.Now().Format(time.RFC3339)
+			updatedEmbeds := []*discordgo.MessageEmbed{embed}
+
+			_, err := d.dg.ChannelMessageEditComplex(&discordgo.MessageEdit{
+				Channel: d.channelID,
+				ID:      msg.ID,
+				Embeds:  &updatedEmbeds,
+			})
+
+			if err != nil {
+				log.Printf("Error updating attack notification after delay: %v", err)
+			} else {
+				log.Printf("Successfully updated attack notification after 5s delay")
+			}
+		}()
 	}
 
 	return msg.ID, nil
@@ -580,8 +609,8 @@ func (d *DiscordBotIntegration) NotifyAttackUpdate(ctx context.Context, attack *
 		return fmt.Errorf("discord session not initialized")
 	}
 
-	content := ":chart_with_upwards_trend: **DDoS Attack Update** :chart_with_downwards_trend:"
 	embed := d.createDiscordgoEmbed(attack, previous, 0xFFFF00, "DDoS Attack Updated")
+	embeds := []*discordgo.MessageEmbed{embed}
 
 	if messageID == "" {
 		d.messageMutex.RLock()
@@ -594,18 +623,16 @@ func (d *DiscordBotIntegration) NotifyAttackUpdate(ctx context.Context, attack *
 	}
 
 	if messageID != "" {
-		embeds := []*discordgo.MessageEmbed{embed}
 		_, err := d.dg.ChannelMessageEditComplex(&discordgo.MessageEdit{
 			Channel: d.channelID,
 			ID:      messageID,
-			Content: &content,
 			Embeds:  &embeds,
 		})
 		if err != nil {
 			if strings.Contains(err.Error(), "Unknown Message") {
+				newEmbeds := []*discordgo.MessageEmbed{embed}
 				msg, err := d.dg.ChannelMessageSendComplex(d.channelID, &discordgo.MessageSend{
-					Content: content,
-					Embeds:  []*discordgo.MessageEmbed{embed},
+					Embeds: newEmbeds,
 				})
 				if err != nil {
 					return fmt.Errorf("failed to send new Discord message: %w", err)
@@ -621,9 +648,9 @@ func (d *DiscordBotIntegration) NotifyAttackUpdate(ctx context.Context, attack *
 		return nil
 	}
 
+	newEmbeds := []*discordgo.MessageEmbed{embed}
 	msg, err := d.dg.ChannelMessageSendComplex(d.channelID, &discordgo.MessageSend{
-		Content: content,
-		Embeds:  []*discordgo.MessageEmbed{embed},
+		Embeds: newEmbeds,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to send Discord message: %w", err)
@@ -643,8 +670,8 @@ func (d *DiscordBotIntegration) NotifyAttackEnded(ctx context.Context, attack *n
 		return fmt.Errorf("discord session not initialized")
 	}
 
-	content := ":white_check_mark: **DDoS Attack Ended** :shield:"
 	embed := d.createDiscordgoEmbed(attack, nil, 0x00FF00, "DDoS Attack Ended")
+	embeds := []*discordgo.MessageEmbed{embed}
 
 	if messageID == "" {
 		d.messageMutex.RLock()
@@ -657,18 +684,16 @@ func (d *DiscordBotIntegration) NotifyAttackEnded(ctx context.Context, attack *n
 	}
 
 	if messageID != "" {
-		embeds := []*discordgo.MessageEmbed{embed}
 		_, err := d.dg.ChannelMessageEditComplex(&discordgo.MessageEdit{
 			Channel: d.channelID,
 			ID:      messageID,
-			Content: &content,
 			Embeds:  &embeds,
 		})
 		if err != nil {
 			if strings.Contains(err.Error(), "Unknown Message") {
+				newEmbeds := []*discordgo.MessageEmbed{embed}
 				_, err := d.dg.ChannelMessageSendComplex(d.channelID, &discordgo.MessageSend{
-					Content: content,
-					Embeds:  []*discordgo.MessageEmbed{embed},
+					Embeds: newEmbeds,
 				})
 				if err != nil {
 					return fmt.Errorf("failed to send new Discord message: %w", err)
@@ -684,9 +709,9 @@ func (d *DiscordBotIntegration) NotifyAttackEnded(ctx context.Context, attack *n
 		return nil
 	}
 
+	newEmbeds := []*discordgo.MessageEmbed{embed}
 	_, err := d.dg.ChannelMessageSendComplex(d.channelID, &discordgo.MessageSend{
-		Content: content,
-		Embeds:  []*discordgo.MessageEmbed{embed},
+		Embeds: newEmbeds,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to send Discord message: %w", err)
@@ -699,32 +724,35 @@ func (d *DiscordBotIntegration) createDiscordgoEmbed(attack *neoprotect.Attack, 
 	var description strings.Builder
 
 	if attack.StartedAt != nil {
-		description.WriteString("## Attack Timeline\n")
-		description.WriteString(fmt.Sprintf("**🕒 Started:** %s\n", attack.StartedAt.Format(time.RFC3339)))
+		description.WriteString("### Attack Timeline\n")
+		description.WriteString(fmt.Sprintf("**`🕒`** Started: %s\n", attack.StartedAt.Format(time.RFC3339)))
 
 		if attack.EndedAt != nil {
-			description.WriteString(fmt.Sprintf("**🛑 Ended:** %s\n", attack.EndedAt.Format(time.RFC3339)))
-			description.WriteString(fmt.Sprintf("**⏱️ Duration:** %s\n", attack.Duration().String()))
+			description.WriteString(fmt.Sprintf("**`🛑`** Ended: %s\n", attack.EndedAt.Format(time.RFC3339)))
+			description.WriteString(fmt.Sprintf("**`⏱️`** Duration: %s\n", attack.Duration().String()))
 		} else {
-			description.WriteString("**⚠️ Status:** Active\n")
-			description.WriteString(fmt.Sprintf("**⏱️ Duration so far:** %s\n", attack.Duration().String()))
+			description.WriteString("**`⚠️`** Status: Active\n")
+			description.WriteString(fmt.Sprintf("**`⏱️`** Duration so far: %s\n", attack.Duration().String()))
 		}
 	}
 
-	description.WriteString("\n## Attack Details\n")
-	description.WriteString(fmt.Sprintf("**🎯 Target IP:** `%s`\n", attack.DstAddressString))
-	description.WriteString(fmt.Sprintf("**🔍 Attack ID:** `%s`\n", attack.ID))
+	description.WriteString("### Attack Details\n")
+	description.WriteString(fmt.Sprintf("**`🎯`** Target IP: `%s`\n", attack.DstAddressString))
+	description.WriteString(fmt.Sprintf("**`🔍`** Attack ID: `%s`\n", attack.ID))
+
+	panelLink := fmt.Sprintf("https://panel.neoprotect.net/network/ips/%s?tab=attacks", attack.DstAddressString)
+	description.WriteString(fmt.Sprintf("**`🔗`** [View in NeoProtect Panel](%s)\n", panelLink))
 
 	fields := []*discordgo.MessageEmbedField{
 		{
-			Name: "📊 Traffic Statistics",
+			Name: "**`📊`** Traffic Statistics",
 			Value: fmt.Sprintf("**Peak Bandwidth:** %s\n**Peak Packet Rate:** %s",
 				formatBPS(attack.GetPeakBPS()),
 				formatPPS(attack.GetPeakPPS())),
 			Inline: false,
 		},
 		{
-			Name:   "🔎 Attack Signatures",
+			Name:   "**`🔎`** Attack Signatures",
 			Value:  d.formatSignatures(attack),
 			Inline: false,
 		},
@@ -738,9 +766,9 @@ func (d *DiscordBotIntegration) createDiscordgoEmbed(attack *neoprotect.Attack, 
 			if bpsChange, ok := diff["bpsPeakChange"].(int64); ok {
 				var changeSymbol string
 				if bpsChange > 0 {
-					changeSymbol = "📈"
+					changeSymbol = "`📈`"
 				} else {
-					changeSymbol = "📉"
+					changeSymbol = "`📉`"
 				}
 				changesBuilder.WriteString(fmt.Sprintf("%s **Bandwidth:** %s → %s (%+d%%)\n",
 					changeSymbol,
@@ -752,9 +780,9 @@ func (d *DiscordBotIntegration) createDiscordgoEmbed(attack *neoprotect.Attack, 
 			if ppsChange, ok := diff["ppsPeakChange"].(int64); ok {
 				var changeSymbol string
 				if ppsChange > 0 {
-					changeSymbol = "📈"
+					changeSymbol = "`📈`"
 				} else {
-					changeSymbol = "📉"
+					changeSymbol = "`📉`"
 				}
 				changesBuilder.WriteString(fmt.Sprintf("%s **Packet Rate:** %s → %s (%+d%%)\n",
 					changeSymbol,
@@ -764,15 +792,15 @@ func (d *DiscordBotIntegration) createDiscordgoEmbed(attack *neoprotect.Attack, 
 			}
 
 			if newSigs, ok := diff["newSignatures"].([]string); ok && len(newSigs) > 0 {
-				changesBuilder.WriteString("**⚠️ New Attack Signatures:**\n")
+				changesBuilder.WriteString("**`⚠️`** New Attack Signatures:\n")
 				for _, sig := range newSigs {
-					changesBuilder.WriteString(fmt.Sprintf("• %s\n", sig))
+					changesBuilder.WriteString(fmt.Sprintf("• `%s`\n", sig))
 				}
 			}
 
 			if changesBuilder.Len() > 0 {
 				fields = append(fields, &discordgo.MessageEmbedField{
-					Name:   "📝 Changes Detected",
+					Name:   "**`📝`** Changes Detected",
 					Value:  changesBuilder.String(),
 					Inline: false,
 				})
@@ -780,16 +808,22 @@ func (d *DiscordBotIntegration) createDiscordgoEmbed(attack *neoprotect.Attack, 
 		}
 	}
 
+	timestamp := time.Now().Format(time.RFC3339)
+	if attack.StartedAt != nil {
+		timestamp = attack.StartedAt.Format(time.RFC3339)
+	}
+
 	embed := &discordgo.MessageEmbed{
 		Title:       title,
 		Description: description.String(),
 		Color:       color,
 		Fields:      fields,
+		URL:         panelLink,
 		Footer: &discordgo.MessageEmbedFooter{
 			Text:    "NeoProtect Monitor Bot",
 			IconURL: "https://cms.mscode.pl/uploads/icon_blue_84fa10dde8.png",
 		},
-		Timestamp: time.Now().Format(time.RFC3339),
+		Timestamp: timestamp,
 	}
 
 	return embed
@@ -803,7 +837,7 @@ func (d *DiscordBotIntegration) formatSignatures(attack *neoprotect.Attack) stri
 
 	var result strings.Builder
 	for _, name := range names {
-		result.WriteString(fmt.Sprintf("• %s\n", name))
+		result.WriteString(fmt.Sprintf("• `%s`\n", name))
 	}
 
 	return result.String()
