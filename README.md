@@ -12,6 +12,7 @@ A real-time monitoring and notification system for DDoS attacks detected by the 
 - **Multiple integration options** - Built-in support for Discord, webhooks, emails, and console notifications
 - **Modular architecture** - Easily extend with custom integrations using the plugin system
 - **Complete or focused monitoring** - Monitor all IP addresses or only specific ones
+- **IP blacklisting** - Exclude specific IP addresses from monitoring
 - **Detailed attack information** - Get comprehensive data including attack signatures, traffic peaks, and duration
 - **Lightweight and efficient** - Minimal resource footprint with optimized API interactions
 
@@ -20,12 +21,12 @@ A real-time monitoring and notification system for DDoS attacks detected by the 
 | Integration        |     Status     | Priority | Notes                                    |
 |:-------------------|:--------------:|:--------:|:-----------------------------------------|
 | 🤖 Discord Bot     |    ✅ Ready     |   High   | Fully implemented and tested             |
-| 📢 Discord Webhook |    ✅ Ready     |  Medium  | Needs thorough testing                   |
+| 📢 Discord Webhook |    ✅ Ready     |  Medium  | Fully implemented and tested                   |
 | 📨 Telegram        | 🔲 Not Started |  Medium  | Planned                                  |
 | 📧 SMTP Email      | 🔲 Not Started |  Medium  | Planned                                  |
 | 📱 SMS Alerts      | 🔲 Not Started |   Low    | Planned                                  |
 | 💻 MS Teams        | 🔲 Not Started |   Low    | Planned                                  |
-| 🌐 Custom Webhook  |    🧪 BETA     |   Low    | Basic implementation requires refinement |
+| 🌐 Custom Webhook  |    ✅ Ready     |   Low    | Fully implemented and tested |
 
 ## 🛠️ Platform & Infrastructure Improvements
 
@@ -33,14 +34,14 @@ A real-time monitoring and notification system for DDoS attacks detected by the 
 |:--------------------------|:--------------:|:--------:|:-------------------------------------|
 | 🐳 Docker Support         | 🔲 Not Started |   Low    | Improve deployment flexibility       |
 | 🧪 Comprehensive Testing  | 🔲 Not Started | Critical | Ensure system reliability            |
-| 🔗 Attack Context Linking | 🔲 Not Started |  Medium  | Provide links to attack in dashboard |
+| 🔗 Attack Context Linking |        ✅ Completed        |  Medium  | Provide links to attack in dashboard |
 
 ## 🎨 User Experience Enhancements
 
 | Feature                          |   Status   | Priority | Goal                                  |
 |:---------------------------------|:----------:|:--------:|:--------------------------------------|
 | 🌈 Enhanced Console Output       | 🟡 Partial |   Low    | Implement rich, colorful logging      |
-| 🖌️ Discord Notification Styling | 🟡 Partial |  Medium  | Improve visual presentation of alerts |
+| 🖌️ Discord Notification Styling |      ✅ Completed      |  Medium  | Improve visual presentation of alerts |
 
 ## 🚀 Prioritization Legend
 - 🔲 Not Started
@@ -50,7 +51,7 @@ A real-time monitoring and notification system for DDoS attacks detected by the 
 - 🌟 Medium Priority
 - 💡 Low Priority
 
-**Last Updated**: 28 April 2025 12:45 Europe/Warsaw
+**Last Updated**: 27 May 2025 23:50 Europe/Warsaw
 
 ## 🚀 Quick Start
 
@@ -92,6 +93,9 @@ Create a `config.json` file in the application directory:
    "specificIPs": [
       "192.168.1.1"
    ],
+   "blacklistedIPs": [
+      "192.168.1.100"
+   ],
    "enabledIntegrations": [
       "discord",
       "webhook",
@@ -121,6 +125,7 @@ Create a `config.json` file in the application directory:
 | `pollIntervalSeconds` | How often to check for attacks (in seconds)       | `60`                            |
 | `monitorMode`         | Monitoring mode (`all` or `specific`)             | `all`                           |
 | `specificIPs`         | List of IPs to monitor when using `specific` mode | `[]`                            |
+| `blacklistedIPs`      | List of IPs to exclude from monitoring            | `[]`                            |
 | `enabledIntegrations` | List of integrations to enable                    | `[]`                            |
 | `integrationConfigs`  | Configuration for each integration                | `{}`                            |
 
@@ -132,9 +137,9 @@ Simple console notifications with colored output.
 
 ```json
 "console": {
-  "logPrefix": "NEOPROTECT",
-  "formatJson": false,
-  "colorEnabled": true
+"logPrefix": "NEOPROTECT",
+"formatJson": false,
+"colorEnabled": true
 }
 ```
 
@@ -144,9 +149,9 @@ Send notifications to Discord channels.
 
 ```json
 "discord": {
-  "webhookUrl": "https://discord.com/api/webhooks/YOUR/DISCORD/WEBHOOK",
-  "username": "NeoProtect Monitor",
-  "avatarUrl": "https://example.com/avatar.png"
+"webhookUrl": "https://discord.com/api/webhooks/YOUR/DISCORD/WEBHOOK",
+"username": "NeoProtect Monitor",
+"avatarUrl": "https://example.com/avatar.png"
 }
 ```
 
@@ -157,10 +162,10 @@ Some commands are available for the bot, like `!attack <id>` to get more informa
 
 ```json
 "discord_bot": {
-   "token": "YOUR_DISCORD_BOT_TOKEN",
-   "clientId": "YOUR_DISCORD_CLIENT_ID",
-   "guildId": "YOUR_DISCORD_GUILD_ID",
-   "channelId": "YOUR_DISCORD_CHANNEL_ID"
+"token": "YOUR_DISCORD_BOT_TOKEN",
+"clientId": "YOUR_DISCORD_CLIENT_ID",
+"guildId": "YOUR_DISCORD_GUILD_ID",
+"channelId": "YOUR_DISCORD_CHANNEL_ID"
 }
 ```
 
@@ -170,12 +175,12 @@ Send notifications to a custom HTTP endpoint.
 
 ```json
 "webhook": {
-  "url": "https://your-webhook-endpoint.com/notify",
-  "headers": {
-    "Authorization": "Bearer your-token-here",
-    "Content-Type": "application/json"
-  },
-  "timeout": 10
+"url": "https://your-webhook-endpoint.com/notify",
+"headers": {
+"Authorization": "Bearer your-token-here",
+"Content-Type": "application/json"
+},
+"timeout": 10
 }
 ```
 
@@ -208,11 +213,11 @@ Or use docker-compose:
 ```yaml
 version: '3'
 services:
-  neoprotect-notifier:
-    build: .
-    restart: unless-stopped
-    volumes:
-      - ./config.json:/app/config.json
+   neoprotect-notifier:
+      build: .
+      restart: unless-stopped
+      volumes:
+         - ./config.json:/app/config.json
 ```
 
 ## 🤝 Contributing

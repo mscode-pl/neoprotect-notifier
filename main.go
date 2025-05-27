@@ -83,7 +83,7 @@ func monitorAttacks(ctx context.Context, client *neoprotect.Client, manager *int
 	}
 
 	log.Println("Performing initial attack status fetch (active attacks only)")
-	fetchAndProcessActiveAttacks(ctx, client, manager, cfg.MonitorMode, ipsToMonitor, knownAttacks, messageTracker)
+	fetchAndProcessActiveAttacks(ctx, client, manager, cfg.MonitorMode, ipsToMonitor, knownAttacks, messageTracker, cfg)
 
 	for {
 		select {
@@ -91,12 +91,12 @@ func monitorAttacks(ctx context.Context, client *neoprotect.Client, manager *int
 			log.Println("Attack monitoring stopped")
 			return
 		case <-ticker.C:
-			fetchAndProcessActiveAttacks(ctx, client, manager, cfg.MonitorMode, ipsToMonitor, knownAttacks, messageTracker)
+			fetchAndProcessActiveAttacks(ctx, client, manager, cfg.MonitorMode, ipsToMonitor, knownAttacks, messageTracker, cfg)
 		}
 	}
 }
 
-func fetchAndProcessActiveAttacks(ctx context.Context, client *neoprotect.Client, manager *integrations.Manager, monitorMode string, ipsToMonitor []string, knownAttacks map[string]*neoprotect.Attack, messageTracker *integrations.MessageTracker) {
+func fetchAndProcessActiveAttacks(ctx context.Context, client *neoprotect.Client, manager *integrations.Manager, monitorMode string, ipsToMonitor []string, knownAttacks map[string]*neoprotect.Attack, messageTracker *integrations.MessageTracker, cfg *config.Config) {
 	var attacks []*neoprotect.Attack
 	var err error
 
@@ -109,6 +109,11 @@ func fetchAndProcessActiveAttacks(ctx context.Context, client *neoprotect.Client
 	} else if monitorMode == "specific" {
 		var allAttacks []*neoprotect.Attack
 		for _, ip := range ipsToMonitor {
+			if cfg.IsBlacklisted(ip) {
+				log.Printf("Skipping blacklisted IP: %s", ip)
+				continue
+			}
+
 			ipAttack, err := client.GetActiveAttack(ctx, ip)
 			if err != nil {
 				if !errors.Is(err, neoprotect.ErrNoActiveAttack) {
@@ -117,7 +122,7 @@ func fetchAndProcessActiveAttacks(ctx context.Context, client *neoprotect.Client
 				continue
 			}
 
-			if ipAttack != nil {
+			if ipAttack != nil && isValidAttack(ipAttack) {
 				allAttacks = append(allAttacks, ipAttack)
 			}
 		}
@@ -127,9 +132,37 @@ func fetchAndProcessActiveAttacks(ctx context.Context, client *neoprotect.Client
 		return
 	}
 
-	processActiveAttacks(ctx, client, manager, attacks, knownAttacks, messageTracker)
-	checkForEndedAttacks(ctx, manager, attacks, knownAttacks, messageTracker)
+	var validAttacks []*neoprotect.Attack
+	for _, attack := range attacks {
+		if !isValidAttack(attack) {
+			log.Printf("Skipping invalid attack: ID=%s, IP=%s", attack.ID, attack.DstAddressString)
+			continue
+		}
+
+		if cfg.IsBlacklisted(attack.DstAddressString) {
+			log.Printf("Skipping blacklisted IP attack: %s", attack.DstAddressString)
+			continue
+		}
+
+		validAttacks = append(validAttacks, attack)
+	}
+
+	processActiveAttacks(ctx, client, manager, validAttacks, knownAttacks, messageTracker)
+	checkForEndedAttacks(ctx, manager, validAttacks, knownAttacks, messageTracker)
 	cleanupEndedAttacks(knownAttacks)
+}
+
+func isValidAttack(attack *neoprotect.Attack) bool {
+	if attack == nil {
+		return false
+	}
+	if attack.ID == "" {
+		return false
+	}
+	if attack.DstAddressString == "" {
+		return false
+	}
+	return true
 }
 
 func processActiveAttacks(ctx context.Context, client *neoprotect.Client, manager *integrations.Manager, attacks []*neoprotect.Attack, knownAttacks map[string]*neoprotect.Attack, messageTracker *integrations.MessageTracker) {

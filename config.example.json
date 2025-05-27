@@ -1,14 +1,19 @@
 {
-  "apiKey": "your-api-key-here",
+  "apiKey": "your-noeprotect-api-key-here",
   "apiEndpoint": "https://api.neoprotect.net/v2",
-  "pollIntervalSeconds": 60,
+  "pollIntervalSeconds": 30,
   "monitorMode": "all",
+  "_comment": "monitorMode can be 'all' or 'specific'",
   "specificIPs": [
     "192.168.1.1",
     "10.0.0.1"
   ],
+  "blacklistedIPs": [
+    "192.168.1.100",
+    "10.0.0.100"
+  ],
   "enabledIntegrations": [
-    "discord",
+    "discord_bot",
     "webhook"
   ],
   "integrationConfigs": {

@@ -135,7 +135,7 @@ func (d *DiscordBotIntegration) hasAllowedRole(i *discordgo.InteractionCreate) b
 	return false
 }
 
-func (d *DiscordBotIntegration) handleReady(s *discordgo.Session) {
+func (d *DiscordBotIntegration) handleReady(s *discordgo.Session, i *discordgo.Ready) {
 	log.Println("Discord bot is now ready!")
 
 	err := s.UpdateGameStatus(0, "Monitoring DDoS attacks")
@@ -919,9 +919,17 @@ func (d *DiscordBotIntegration) createDiscordgoEmbed(attack *neoprotect.Attack, 
 		}
 	}
 
-	description.WriteString("### Attack Details\n")
-	description.WriteString(fmt.Sprintf("**`🎯`** Target IP: `%s`\n", attack.DstAddressString))
-	description.WriteString(fmt.Sprintf("**`🔍`** Attack ID: `%s`\n", attack.ID))
+	targetIP := attack.DstAddressString
+	if targetIP == "" {
+		targetIP = "unknown"
+	}
+	description.WriteString(fmt.Sprintf("**`🎯`** Target IP: `%s`\n", targetIP))
+
+	attackID := attack.ID
+	if attackID == "" {
+		attackID = "unknown"
+	}
+	description.WriteString(fmt.Sprintf("**`🔍`** Attack ID: `%s`\n", attackID))
 
 	panelLink := fmt.Sprintf("https://panel.neoprotect.net/network/ips/%s?tab=attacks", attack.DstAddressString)
 	description.WriteString(fmt.Sprintf("**`🔗`** [View in NeoProtect Panel](%s)\n", panelLink))

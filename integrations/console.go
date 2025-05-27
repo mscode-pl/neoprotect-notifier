@@ -26,7 +26,6 @@ func (c *ConsoleIntegration) Name() string {
 	return "console"
 }
 
-// Initialize sets up the console integration
 func (c *ConsoleIntegration) Initialize(rawConfig map[string]interface{}) error {
 	configBytes, err := json.Marshal(rawConfig)
 	if err != nil {
@@ -49,28 +48,24 @@ func (c *ConsoleIntegration) Initialize(rawConfig map[string]interface{}) error 
 	return nil
 }
 
-// NotifyNewAttack logs a new attack notification to the console
 func (c *ConsoleIntegration) NotifyNewAttack(ctx context.Context, attack *neoprotect.Attack) (string, error) {
 	message := c.formatAttack("NEW ATTACK", attack, nil, c.colorRed())
 	log.Println(message)
-	return "", nil // Console integration doesn't track message IDs
+	return "", nil
 }
 
-// NotifyAttackUpdate logs an attack update notification to the console
 func (c *ConsoleIntegration) NotifyAttackUpdate(ctx context.Context, attack *neoprotect.Attack, previous *neoprotect.Attack, messageID string) error {
 	message := c.formatAttack("ATTACK UPDATE", attack, previous, c.colorYellow())
 	log.Println(message)
 	return nil
 }
 
-// NotifyAttackEnded logs an attack ended notification to the console
 func (c *ConsoleIntegration) NotifyAttackEnded(ctx context.Context, attack *neoprotect.Attack, messageID string) error {
 	message := c.formatAttack("ATTACK ENDED", attack, nil, c.colorGreen())
 	log.Println(message)
 	return nil
 }
 
-// formatAttack formats an attack notification as a string
 func (c *ConsoleIntegration) formatAttack(eventType string, attack *neoprotect.Attack, previous *neoprotect.Attack, colorCode string) string {
 	if c.formatJSON {
 		return c.formatJSONOutput(eventType, attack, previous)
@@ -94,12 +89,24 @@ func (c *ConsoleIntegration) formatAttack(eventType string, attack *neoprotect.A
 		}
 	}
 
+	attackIDShort := "unknown"
+	if len(attack.ID) >= 8 {
+		attackIDShort = attack.ID[:8]
+	} else if attack.ID != "" {
+		attackIDShort = attack.ID
+	}
+
+	targetIP := attack.DstAddressString
+	if targetIP == "" {
+		targetIP = "unknown"
+	}
+
 	return fmt.Sprintf("%s[%s] %s: Attack %s on %s, %s, %d signatures (%s), peak: %d bps, %d pps%s%s",
 		colorCode,
 		c.logPrefix,
 		eventType,
-		attack.ID[:8],
-		attack.DstAddressString,
+		attackIDShort,
+		targetIP,
 		timeInfo,
 		len(attack.Signatures),
 		c.joinSignatureNames(attack),
@@ -110,7 +117,6 @@ func (c *ConsoleIntegration) formatAttack(eventType string, attack *neoprotect.A
 	)
 }
 
-// formatJSONOutput formats an attack notification as JSON
 func (c *ConsoleIntegration) formatJSONOutput(eventType string, attack *neoprotect.Attack, previous *neoprotect.Attack) string {
 	output := map[string]interface{}{
 		"prefix":     c.logPrefix,
@@ -141,7 +147,6 @@ func (c *ConsoleIntegration) formatJSONOutput(eventType string, attack *neoprote
 	return fmt.Sprintf("%s%s%s", c.colorCode(eventType), string(jsonBytes), c.colorReset())
 }
 
-// joinSignatureNames joins the attack signature names into a comma-separated string
 func (c *ConsoleIntegration) joinSignatureNames(attack *neoprotect.Attack) string {
 	names := attack.GetSignatureNames()
 	if len(names) == 0 {
@@ -156,7 +161,6 @@ func (c *ConsoleIntegration) joinSignatureNames(attack *neoprotect.Attack) strin
 	return result
 }
 
-// colorCode returns the appropriate color code for an event type
 func (c *ConsoleIntegration) colorCode(eventType string) string {
 	if !c.colorEnabled {
 		return ""
@@ -174,7 +178,6 @@ func (c *ConsoleIntegration) colorCode(eventType string) string {
 	}
 }
 
-// colorRed returns the red color code if colors are enabled
 func (c *ConsoleIntegration) colorRed() string {
 	if c.colorEnabled {
 		return ColorRed
@@ -182,7 +185,6 @@ func (c *ConsoleIntegration) colorRed() string {
 	return ""
 }
 
-// colorYellow returns the yellow color code if colors are enabled
 func (c *ConsoleIntegration) colorYellow() string {
 	if c.colorEnabled {
 		return ColorYellow
@@ -190,7 +192,6 @@ func (c *ConsoleIntegration) colorYellow() string {
 	return ""
 }
 
-// colorGreen returns the green color code if colors are enabled
 func (c *ConsoleIntegration) colorGreen() string {
 	if c.colorEnabled {
 		return ColorGreen
@@ -198,7 +199,6 @@ func (c *ConsoleIntegration) colorGreen() string {
 	return ""
 }
 
-// colorReset returns the color reset code if colors are enabled
 func (c *ConsoleIntegration) colorReset() string {
 	if c.colorEnabled {
 		return ColorReset

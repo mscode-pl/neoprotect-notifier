@@ -22,14 +22,13 @@ type WebhookIntegration struct {
 type WebhookConfig struct {
 	URL     string            `json:"url"`
 	Headers map[string]string `json:"headers"`
-	Timeout int               `json:"timeout"` // in seconds
+	Timeout int               `json:"timeout"`
 }
 
 func (w *WebhookIntegration) Name() string {
 	return "webhook"
 }
 
-// Initialize sets up the webhook integration
 func (w *WebhookIntegration) Initialize(rawConfig map[string]interface{}) error {
 	configBytes, err := json.Marshal(rawConfig)
 	if err != nil {
@@ -60,12 +59,21 @@ func (w *WebhookIntegration) Initialize(rawConfig map[string]interface{}) error 
 	return nil
 }
 
-// NotifyNewAttack sends a webhook notification for a new attack
 func (w *WebhookIntegration) NotifyNewAttack(ctx context.Context, attack *neoprotect.Attack) (string, error) {
+	attackID := attack.ID
+	if attackID == "" {
+		attackID = "unknown"
+	}
+
+	targetIP := attack.DstAddressString
+	if targetIP == "" {
+		targetIP = "unknown"
+	}
+
 	payload := map[string]interface{}{
 		"event":           "new_attack",
-		"attack_id":       attack.ID,
-		"target_ip":       attack.DstAddressString,
+		"attack_id":       attackID,
+		"target_ip":       targetIP,
 		"started_at":      attack.StartedAt,
 		"signatures":      attack.GetSignatureNames(),
 		"peak_bps":        attack.GetPeakBPS(),
@@ -76,14 +84,23 @@ func (w *WebhookIntegration) NotifyNewAttack(ctx context.Context, attack *neopro
 	return "", w.sendWebhook(ctx, payload)
 }
 
-// NotifyAttackUpdate sends a webhook notification for an attack update
 func (w *WebhookIntegration) NotifyAttackUpdate(ctx context.Context, attack *neoprotect.Attack, previous *neoprotect.Attack, messageID string) error {
 	diff := attack.CalculateDiff(previous)
 
+	attackID := attack.ID
+	if attackID == "" {
+		attackID = "unknown"
+	}
+
+	targetIP := attack.DstAddressString
+	if targetIP == "" {
+		targetIP = "unknown"
+	}
+
 	payload := map[string]interface{}{
 		"event":              "attack_update",
-		"attack_id":          attack.ID,
-		"target_ip":          attack.DstAddressString,
+		"attack_id":          attackID,
+		"target_ip":          targetIP,
 		"started_at":         attack.StartedAt,
 		"current_signatures": attack.GetSignatureNames(),
 		"peak_bps":           attack.GetPeakBPS(),
@@ -98,12 +115,21 @@ func (w *WebhookIntegration) NotifyAttackUpdate(ctx context.Context, attack *neo
 	return w.sendWebhook(ctx, payload)
 }
 
-// NotifyAttackEnded sends a webhook notification for an attack that has ended
 func (w *WebhookIntegration) NotifyAttackEnded(ctx context.Context, attack *neoprotect.Attack, messageID string) error {
+	attackID := attack.ID
+	if attackID == "" {
+		attackID = "unknown"
+	}
+
+	targetIP := attack.DstAddressString
+	if targetIP == "" {
+		targetIP = "unknown"
+	}
+
 	payload := map[string]interface{}{
 		"event":           "attack_ended",
-		"attack_id":       attack.ID,
-		"target_ip":       attack.DstAddressString,
+		"attack_id":       attackID,
+		"target_ip":       targetIP,
 		"started_at":      attack.StartedAt,
 		"ended_at":        attack.EndedAt,
 		"duration":        attack.Duration().String(),
@@ -116,7 +142,6 @@ func (w *WebhookIntegration) NotifyAttackEnded(ctx context.Context, attack *neop
 	return w.sendWebhook(ctx, payload)
 }
 
-// sendWebhook sends a payload to the configured webhook URL
 func (w *WebhookIntegration) sendWebhook(ctx context.Context, payload map[string]interface{}) error {
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {

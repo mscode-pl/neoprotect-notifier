@@ -25,7 +25,7 @@ type DiscordConfig struct {
 	WebhookURL string `json:"webhookUrl"`
 	Username   string `json:"username"`
 	AvatarURL  string `json:"avatarUrl"`
-	Timeout    int    `json:"timeout"` // in seconds
+	Timeout    int    `json:"timeout"`
 }
 
 type DiscordMessage struct {
@@ -48,7 +48,6 @@ type DiscordEmbed struct {
 	Author      *DiscordAuthor `json:"author,omitempty"`
 }
 
-// DiscordField represents a field in a Discord embed
 type DiscordField struct {
 	Name   string `json:"name,omitempty"`
 	Value  string `json:"value,omitempty"`
@@ -78,7 +77,6 @@ func (d *DiscordIntegration) Name() string {
 	return "discord"
 }
 
-// Initialize sets up the Discord integration
 func (d *DiscordIntegration) Initialize(rawConfig map[string]interface{}) error {
 	configBytes, err := json.Marshal(rawConfig)
 	if err != nil {
@@ -116,7 +114,6 @@ func (d *DiscordIntegration) Initialize(rawConfig map[string]interface{}) error 
 	return nil
 }
 
-// NotifyNewAttack sends a Discord notification for a new attack
 func (d *DiscordIntegration) NotifyNewAttack(ctx context.Context, attack *neoprotect.Attack) (string, error) {
 	embed := d.createAttackEmbed(attack, nil, DiscordColorRed, "`🔥` New DDoS Attack Detected")
 
@@ -158,7 +155,6 @@ func (d *DiscordIntegration) NotifyNewAttack(ctx context.Context, attack *neopro
 	return messageID, nil
 }
 
-// NotifyAttackUpdate sends a Discord notification for an attack update
 func (d *DiscordIntegration) NotifyAttackUpdate(ctx context.Context, attack *neoprotect.Attack, previous *neoprotect.Attack, messageID string) error {
 	embed := d.createAttackEmbed(attack, previous, DiscordColorYellow, "DDoS Attack Updated")
 
@@ -176,7 +172,6 @@ func (d *DiscordIntegration) NotifyAttackUpdate(ctx context.Context, attack *neo
 	return err
 }
 
-// NotifyAttackEnded sends a Discord notification for an attack that has ended
 func (d *DiscordIntegration) NotifyAttackEnded(ctx context.Context, attack *neoprotect.Attack, messageID string) error {
 	embed := d.createAttackEmbed(attack, nil, DiscordColorGreen, "DDoS Attack Ended")
 
@@ -194,7 +189,6 @@ func (d *DiscordIntegration) NotifyAttackEnded(ctx context.Context, attack *neop
 	return err
 }
 
-// createAttackEmbed creates a Discord embed for an attack notification
 func (d *DiscordIntegration) createAttackEmbed(attack *neoprotect.Attack, previous *neoprotect.Attack, color int, title string) DiscordEmbed {
 	var description strings.Builder
 
@@ -212,10 +206,19 @@ func (d *DiscordIntegration) createAttackEmbed(attack *neoprotect.Attack, previo
 	}
 
 	description.WriteString("### Attack Details\n")
-	description.WriteString(fmt.Sprintf("**`🎯`** Target IP: `%s`\n", attack.DstAddressString))
-	description.WriteString(fmt.Sprintf("**`🔍`** Attack ID: `%s`\n", attack.ID))
+	targetIP := attack.DstAddressString
+	if targetIP == "" {
+		targetIP = "unknown"
+	}
+	description.WriteString(fmt.Sprintf("**`🎯`** Target IP: `%s`\n", targetIP))
 
-	panelLink := fmt.Sprintf("https://panel.neoprotect.net/network/ips/%s?tab=attacks", attack.DstAddressString)
+	attackID := attack.ID
+	if attackID == "" {
+		attackID = "unknown"
+	}
+	description.WriteString(fmt.Sprintf("**`🔍`** Attack ID: `%s`\n", attackID))
+
+	panelLink := fmt.Sprintf("https://panel.neoprotect.net/network/ips/%s?tab=attacks", targetIP)
 	description.WriteString(fmt.Sprintf("**`🔗`** [View in NeoProtect Panel](%s)\n", panelLink))
 
 	fields := []DiscordField{
@@ -306,7 +309,6 @@ func (d *DiscordIntegration) createAttackEmbed(attack *neoprotect.Attack, previo
 	return embed
 }
 
-// formatSignatures formats the attack signatures into a string
 func (d *DiscordIntegration) formatSignatures(attack *neoprotect.Attack) string {
 	names := attack.GetSignatureNames()
 	if len(names) == 0 {
@@ -321,11 +323,10 @@ func (d *DiscordIntegration) formatSignatures(attack *neoprotect.Attack) string 
 	return result.String()
 }
 
-// sendDiscordMessage sends a message to Discord
 func (d *DiscordIntegration) sendDiscordMessage(ctx context.Context, message *DiscordMessage) (string, error) {
 	if d.client == nil {
 		d.client = &http.Client{
-			Timeout: 10 * time.Second, // Default timeout
+			Timeout: 10 * time.Second,
 		}
 		log.Printf("Warning: Discord integration HTTP client was nil, created a default one")
 	}
@@ -361,7 +362,6 @@ func (d *DiscordIntegration) sendDiscordMessage(ctx context.Context, message *Di
 		return "", fmt.Errorf("discord request failed with status code %d: %s", resp.StatusCode, string(body))
 	}
 
-	// Try to parse message ID from response
 	var response DiscordResponse
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -380,11 +380,10 @@ func (d *DiscordIntegration) sendDiscordMessage(ctx context.Context, message *Di
 	return response.ID, nil
 }
 
-// updateDiscordMessage updates an existing Discord message
 func (d *DiscordIntegration) updateDiscordMessage(ctx context.Context, messageID string, message *DiscordMessage) error {
 	if d.client == nil {
 		d.client = &http.Client{
-			Timeout: 10 * time.Second, // Default timeout
+			Timeout: 10 * time.Second,
 		}
 		log.Printf("Warning: Discord integration HTTP client was nil, created a default one")
 	}

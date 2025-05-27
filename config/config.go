@@ -14,15 +14,15 @@ type Config struct {
 	PollInterval        time.Duration `json:"-"`
 	PollIntervalSeconds int           `json:"pollIntervalSeconds"`
 
-	MonitorMode string   `json:"monitorMode"`
-	SpecificIPs []string `json:"specificIPs"`
+	MonitorMode    string   `json:"monitorMode"`
+	SpecificIPs    []string `json:"specificIPs"`
+	BlacklistedIPs []string `json:"blacklistedIPs"`
 
 	EnabledIntegrations []string `json:"enabledIntegrations"`
 
 	IntegrationConfigs map[string]json.RawMessage `json:"integrationConfigs"`
 }
 
-// LoadConfig loads and parses the configuration file
 func LoadConfig(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -44,7 +44,6 @@ func LoadConfig(path string) (*Config, error) {
 	return &cfg, nil
 }
 
-// validateConfig validates the configuration and sets default values
 func validateConfig(cfg *Config) error {
 	if cfg.APIKey == "" {
 		return fmt.Errorf("apiKey must be provided")
@@ -58,7 +57,6 @@ func validateConfig(cfg *Config) error {
 		cfg.PollIntervalSeconds = 60
 	}
 
-	// Validate monitor mode
 	if cfg.MonitorMode == "" {
 		cfg.MonitorMode = "all"
 	} else if cfg.MonitorMode != "all" && cfg.MonitorMode != "specific" {
@@ -76,7 +74,6 @@ func validateConfig(cfg *Config) error {
 	return nil
 }
 
-// GetIntegrationConfig retrieves the configuration for a specific integration
 func (c *Config) GetIntegrationConfig(name string, target interface{}) error {
 	config, ok := c.IntegrationConfigs[name]
 	if !ok {
@@ -84,4 +81,13 @@ func (c *Config) GetIntegrationConfig(name string, target interface{}) error {
 	}
 
 	return json.Unmarshal(config, target)
+}
+
+func (c *Config) IsBlacklisted(ip string) bool {
+	for _, blacklistedIP := range c.BlacklistedIPs {
+		if blacklistedIP == ip {
+			return true
+		}
+	}
+	return false
 }
