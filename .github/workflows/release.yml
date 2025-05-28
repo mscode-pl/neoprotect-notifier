@@ -85,6 +85,7 @@ jobs:
                 "clientId": "YOUR_DISCORD_CLIENT_ID",
                 "guildId": "YOUR_DISCORD_GUILD_ID",
                 "channelId": "YOUR_DISCORD_CHANNEL_ID",
+                "commandsEnabled": true,
                 "allowedRoles": ["ROLE_ID_1", "ROLE_ID_2", "ROLE_ID_3"]
               },
               "webhook": {

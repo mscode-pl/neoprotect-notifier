@@ -27,8 +27,9 @@
       "clientId": "YOUR_DISCORD_CLIENT_ID",
       "guildId": "YOUR_DISCORD_GUILD_ID",
       "channelId": "YOUR_DISCORD_CHANNEL_ID",
+      "commandsEnabled": true,
       "allowedRoles": ["ROLE_ID_1", "ROLE_ID_2", "ROLE_ID_3"],
-      "_comment": "Roles which are allowed to use the bot commands, if not set, all roles are allowed."
+      "_comment": "commandsEnabled: Enable/disable slash commands (default: true). allowedRoles: Roles which are allowed to use the bot commands, if not set, all roles are allowed."
     },
     "webhook": {
       "url": "https://your-webhook-endpoint.com/notify",

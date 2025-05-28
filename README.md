@@ -4,12 +4,12 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/mscode-pl/neoprotect-notifier)](https://goreportcard.com/report/github.com/mscode-pl/neoprotect-notifier)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/mscode-pl/neoprotect-notifier)](https://go.dev/)
 
-A real-time monitoring and notification system for DDoS attacks detected by the NeoProtect API. Stay informed instantly about threats to your infrastructure through customizable alerts.
+Real-time monitoring and notification system for DDoS attacks detected by the NeoProtect API. Stay informed instantly about threats to your infrastructure through customizable alerts.
 
 ## 📋 Features
 
 - **Real-time attack monitoring** - Detect new attacks, updates, and ended attacks as they happen
-- **Multiple integration options** - Built-in support for Discord, webhooks, emails, and console notifications
+- **Multiple integration options** - Built-in support for Discord, webhooks, emails and console notifications
 - **Modular architecture** - Easily extend with custom integrations using the plugin system
 - **Complete or focused monitoring** - Monitor all IP addresses or only specific ones
 - **IP blacklisting** - Exclude specific IP addresses from monitoring
@@ -18,14 +18,14 @@ A real-time monitoring and notification system for DDoS attacks detected by the 
 
 ## 🔔 Integration Expansion
 
-| Integration        |     Status     | Priority | Notes                                    |
-|:-------------------|:--------------:|:--------:|:-----------------------------------------|
-| 🤖 Discord Bot     |    ✅ Ready     |   High   | Fully implemented and tested             |
-| 📢 Discord Webhook |    ✅ Ready     |  Medium  | Fully implemented and tested                   |
-| 📨 Telegram        | 🔲 Not Started |  Medium  | Planned                                  |
-| 📧 SMTP Email      | 🔲 Not Started |  Medium  | Planned                                  |
-| 📱 SMS Alerts      | 🔲 Not Started |   Low    | Planned                                  |
-| 💻 MS Teams        | 🔲 Not Started |   Low    | Planned                                  |
+| Integration        |     Status     | Priority | Notes                        |
+|:-------------------|:--------------:|:--------:|:-----------------------------|
+| 🤖 Discord Bot     |    ✅ Ready     |   High   | Fully implemented and tested |
+| 📢 Discord Webhook |    ✅ Ready     |  Medium  | Fully implemented and tested |
+| 📨 Telegram        | 🔲 Not Started |  Medium  | Planned                      |
+| 📧 SMTP Email      | 🔲 Not Started |  Medium  | Planned                      |
+| 📱 SMS Alerts      | 🔲 Not Started |   Low    | Planned                      |
+| 💻 MS Teams        | 🔲 Not Started |   Low    | Planned                      |
 | 🌐 Custom Webhook  |    ✅ Ready     |   Low    | Fully implemented and tested |
 
 ## 🛠️ Platform & Infrastructure Improvements
@@ -34,14 +34,14 @@ A real-time monitoring and notification system for DDoS attacks detected by the 
 |:--------------------------|:--------------:|:--------:|:-------------------------------------|
 | 🐳 Docker Support         | 🔲 Not Started |   Low    | Improve deployment flexibility       |
 | 🧪 Comprehensive Testing  | 🔲 Not Started | Critical | Ensure system reliability            |
-| 🔗 Attack Context Linking |        ✅ Completed        |  Medium  | Provide links to attack in dashboard |
+| 🔗 Attack Context Linking |  ✅ Completed   |  Medium  | Provide links to attack in dashboard |
 
 ## 🎨 User Experience Enhancements
 
-| Feature                          |   Status   | Priority | Goal                                  |
-|:---------------------------------|:----------:|:--------:|:--------------------------------------|
-| 🌈 Enhanced Console Output       | 🟡 Partial |   Low    | Implement rich, colorful logging      |
-| 🖌️ Discord Notification Styling |      ✅ Completed      |  Medium  | Improve visual presentation of alerts |
+| Feature                          |   Status    | Priority | Goal                                  |
+|:---------------------------------|:-----------:|:--------:|:--------------------------------------|
+| 🌈 Enhanced Console Output       | 🟡 Partial  |   Low    | Implement rich, colorful logging      |
+| 🖌️ Discord Notification Styling | ✅ Completed |  Medium  | Improve visual presentation of alerts |
 
 ## 🚀 Prioritization Legend
 - 🔲 Not Started
@@ -165,9 +165,26 @@ Some commands are available for the bot, like `!attack <id>` to get more informa
 "token": "YOUR_DISCORD_BOT_TOKEN",
 "clientId": "YOUR_DISCORD_CLIENT_ID",
 "guildId": "YOUR_DISCORD_GUILD_ID",
-"channelId": "YOUR_DISCORD_CHANNEL_ID"
+"channelId": "YOUR_DISCORD_CHANNEL_ID",
+"commandsEnabled": true,
+"allowedRoles": ["ROLE_ID_1", "ROLE_ID_2", "ROLE_ID_3"]
 }
 ```
+
+**Configuration Options:**
+- `token` (required): Discord bot token
+- `clientId` (optional): Discord application client ID (required for slash commands)
+- `guildId` (optional): Discord server ID for guild-specific commands
+- `channelId` (required): Discord channel ID for notifications
+- `commandsEnabled` (optional): Enable/disable slash commands (default: `true`)
+- `allowedRoles` (optional): Array of role IDs allowed to use bot commands. If not set, all users can use commands
+
+**Available Commands:**
+- `/attack [id]` - Get information about a specific attack or current active attack
+- `/stats [ip]` - Get detailed statistics about DDoS attacks for specific IP or all IPs
+- `/history [limit]` - Get attack history (default limit: 5, max: 20)
+
+**Note:** Commands can be disabled by setting `commandsEnabled` to `false`. This is useful if you only want to use the bot for notifications without interactive commands.
 
 ### Webhook
 

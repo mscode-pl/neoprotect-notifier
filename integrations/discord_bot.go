@@ -17,27 +17,29 @@ import (
 )
 
 type DiscordBotIntegration struct {
-	token         string
-	clientID      string
-	guildID       string
-	channelID     string
-	username      string
-	avatarURL     string
-	attackCache   map[string]string
-	messageMutex  sync.RWMutex
-	neoprotectAPI *neoprotect.Client
-	dg            *discordgo.Session
-	allowedRoles  []string
+	token           string
+	clientID        string
+	guildID         string
+	channelID       string
+	username        string
+	avatarURL       string
+	commandsEnabled bool
+	attackCache     map[string]string
+	messageMutex    sync.RWMutex
+	neoprotectAPI   *neoprotect.Client
+	dg              *discordgo.Session
+	allowedRoles    []string
 }
 
 type DiscordBotConfig struct {
-	Token        string   `json:"token"`
-	ClientID     string   `json:"clientId"`
-	GuildID      string   `json:"guildId"`
-	ChannelID    string   `json:"channelId"`
-	Username     string   `json:"username"`
-	AvatarURL    string   `json:"avatarUrl"`
-	AllowedRoles []string `json:"allowedRoles"`
+	Token           string   `json:"token"`
+	ClientID        string   `json:"clientId"`
+	GuildID         string   `json:"guildId"`
+	ChannelID       string   `json:"channelId"`
+	Username        string   `json:"username"`
+	AvatarURL       string   `json:"avatarUrl"`
+	CommandsEnabled bool     `json:"commandsEnabled"`
+	AllowedRoles    []string `json:"allowedRoles"`
 }
 
 func (d *DiscordBotIntegration) Name() string {
@@ -67,13 +69,24 @@ func (d *DiscordBotIntegration) Initialize(rawConfig map[string]interface{}) err
 	d.guildID = config.GuildID
 	d.channelID = config.ChannelID
 	d.username = config.Username
+	d.commandsEnabled = config.CommandsEnabled
 	d.attackCache = make(map[string]string)
 	d.allowedRoles = config.AllowedRoles
+
+	if !config.CommandsEnabled && rawConfig["commandsEnabled"] == nil {
+		d.commandsEnabled = true
+	}
 
 	if len(d.allowedRoles) > 0 {
 		log.Printf("Role-based permissions enabled. Allowed roles: %v", d.allowedRoles)
 	} else {
 		log.Printf("Role-based permissions disabled. All users can use commands.")
+	}
+
+	if d.commandsEnabled {
+		log.Printf("Discord bot commands are enabled")
+	} else {
+		log.Printf("Discord bot commands are disabled")
 	}
 
 	dg, err := discordgo.New("Bot " + config.Token)
@@ -93,11 +106,15 @@ func (d *DiscordBotIntegration) Initialize(rawConfig map[string]interface{}) err
 
 	d.dg = dg
 
-	err = d.registerCommands()
-	if err != nil {
-		log.Printf("Warning: Failed to register slash commands: %v", err)
+	if d.commandsEnabled {
+		err = d.registerCommands()
+		if err != nil {
+			log.Printf("Warning: Failed to register slash commands: %v", err)
+		} else {
+			log.Printf("Discord bot commands registered successfully")
+		}
 	} else {
-		log.Printf("Discord bot commands registered successfully")
+		log.Printf("Skipping command registration - commands are disabled")
 	}
 
 	_, err = d.dg.ChannelMessageSend(d.channelID, "🤖 **NeoProtect Monitor Bot is online!**")
@@ -145,6 +162,11 @@ func (d *DiscordBotIntegration) handleReady(s *discordgo.Session, i *discordgo.R
 }
 
 func (d *DiscordBotIntegration) registerCommands() error {
+	if !d.commandsEnabled {
+		log.Printf("Commands are disabled, skipping registration")
+		return nil
+	}
+
 	commands := []*discordgo.ApplicationCommand{
 		{
 			Name:        "attack",
@@ -209,6 +231,20 @@ func (d *DiscordBotIntegration) handleInteractionCreate(s *discordgo.Session, i 
 	}
 
 	log.Printf("Received command: %s", i.ApplicationCommandData().Name)
+
+	if !d.commandsEnabled {
+		err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "❌ Bot commands are currently disabled by the administrator.",
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
+		if err != nil {
+			log.Printf("Error responding to disabled commands interaction: %v", err)
+		}
+		return
+	}
 
 	if !d.hasAllowedRole(i) {
 		log.Printf("User %s doesn't have any of the allowed roles to use commands", i.Member.User.Username)
@@ -384,7 +420,6 @@ func (d *DiscordBotIntegration) handleHistoryCommand(s *discordgo.Session, i *di
 			continue
 		}
 
-		// Only get max 5 pages of attacks per IP to avoid timeouts
 		maxPages := 5
 		for page := 0; page < maxPages; page++ {
 			attacks, err := d.neoprotectAPI.GetAttacks(ctx, ip.IPv4, page)
@@ -399,19 +434,16 @@ func (d *DiscordBotIntegration) handleHistoryCommand(s *discordgo.Session, i *di
 
 			allAttacks = append(allAttacks, attacks...)
 
-			// If we have enough attacks for our limit, stop fetching more
 			if len(allAttacks) >= limit*3 {
 				break
 			}
 		}
 
-		// If we have a good number of attacks, stop checking more IPs
 		if len(allAttacks) >= limit*2 {
 			break
 		}
 	}
 
-	// Sort attacks by start time (most recent first)
 	sort.Slice(allAttacks, func(i, j int) bool {
 		if allAttacks[i].StartedAt == nil {
 			return false
@@ -524,7 +556,7 @@ func (d *DiscordBotIntegration) handleStatsCommand(s *discordgo.Session, i *disc
 		}
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second) // Increase timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	ipAddresses, err := d.neoprotectAPI.GetIPAddresses(ctx)
@@ -1016,7 +1048,7 @@ func (d *DiscordBotIntegration) Shutdown() {
 	if d.dg != nil {
 		log.Println("Shutting down Discord bot...")
 
-		if d.clientID != "" {
+		if d.commandsEnabled && d.clientID != "" {
 			var commands []*discordgo.ApplicationCommand
 			var err error
 
