@@ -4,7 +4,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/mscode-pl/neoprotect-notifier)](https://goreportcard.com/report/github.com/mscode-pl/neoprotect-notifier)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/mscode-pl/neoprotect-notifier)](https://go.dev/)
 
-Real-time monitoring and notification system for DDoS attacks detected by the NeoProtect API. Stay informed instantly about threats to your infrastructure through customizable alerts.
+A real-time monitoring and notification system for DDoS attacks detected by the NeoProtect API. Stay informed instantly about threats to your infrastructure through customizable alerts.
 
 ## 📋 Features
 
