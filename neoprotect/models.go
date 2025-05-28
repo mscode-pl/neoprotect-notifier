@@ -127,26 +127,22 @@ func (a *Attack) Duration() time.Duration {
 	return endTime.Sub(*a.StartedAt)
 }
 
-// GetPeakBPS returns the peak bits per second across all signatures
+// GetPeakBPS zwraca sumę bitów na sekundę ze wszystkich sygnatur
 func (a *Attack) GetPeakBPS() int64 {
-	var peak int64
+	var sum int64
 	for _, sig := range a.Signatures {
-		if sig.BPSPeak > peak {
-			peak = sig.BPSPeak
-		}
+		sum += sig.BPSPeak
 	}
-	return peak
+	return sum
 }
 
-// GetPeakPPS returns the peak packets per second across all signatures
+// GetPeakPPS zwraca sumę pakietów na sekundę ze wszystkich sygnatur
 func (a *Attack) GetPeakPPS() int64 {
-	var peak int64
+	var sum int64
 	for _, sig := range a.Signatures {
-		if sig.PPSPeak > peak {
-			peak = sig.PPSPeak
-		}
+		sum += sig.PPSPeak
 	}
-	return peak
+	return sum
 }
 
 // GetSignatureNames returns all unique signature names
