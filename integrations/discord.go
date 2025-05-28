@@ -181,14 +181,14 @@ func (d *DiscordIntegration) createAttackEmbed(attack *neoprotect.Attack, previo
 
 	if attack.StartedAt != nil {
 		description.WriteString("### Attack Timeline\n")
-		description.WriteString(fmt.Sprintf("**`🕒`** Started: %s\n", attack.StartedAt.Format(time.RFC3339)))
+		description.WriteString(fmt.Sprintf("**`🕒`** Started: %s\n", formatTimeToLocal(attack.StartedAt)))
 
 		if attack.EndedAt != nil {
-			description.WriteString(fmt.Sprintf("**`🛑`** Ended: %s\n", attack.EndedAt.Format(time.RFC3339)))
-			description.WriteString(fmt.Sprintf("**`⏱️`** Duration: %s\n", attack.Duration().String()))
+			description.WriteString(fmt.Sprintf("**`🛑`** Ended: %s\n", formatTimeToLocal(attack.EndedAt)))
+			description.WriteString(fmt.Sprintf("**`⏱️`** Duration: %s\n", formatDurationReadable(attack.Duration())))
 		} else {
 			description.WriteString("**`⚠️`** Status: Active\n")
-			description.WriteString(fmt.Sprintf("**`⏱️`** Duration so far: %s\n", attack.Duration().String()))
+			description.WriteString(fmt.Sprintf("**`⏱️`** Duration: %s\n", formatDurationReadable(attack.Duration())))
 		}
 	}
 

@@ -74,11 +74,14 @@ func (w *WebhookIntegration) NotifyNewAttack(ctx context.Context, attack *neopro
 		"event":           "new_attack",
 		"attack_id":       attackID,
 		"target_ip":       targetIP,
-		"started_at":      attack.StartedAt,
 		"signatures":      attack.GetSignatureNames(),
 		"peak_bps":        attack.GetPeakBPS(),
 		"peak_pps":        attack.GetPeakPPS(),
-		"notification_ts": time.Now(),
+		"notification_ts": time.Now().Format(time.RFC3339),
+	}
+
+	if attack.StartedAt != nil {
+		payload["started_at"] = formatTimeToLocal(attack.StartedAt)
 	}
 
 	return "", w.sendWebhook(ctx, payload)
@@ -101,11 +104,14 @@ func (w *WebhookIntegration) NotifyAttackUpdate(ctx context.Context, attack *neo
 		"event":              "attack_update",
 		"attack_id":          attackID,
 		"target_ip":          targetIP,
-		"started_at":         attack.StartedAt,
 		"current_signatures": attack.GetSignatureNames(),
 		"peak_bps":           attack.GetPeakBPS(),
 		"peak_pps":           attack.GetPeakPPS(),
-		"notification_ts":    time.Now(),
+		"notification_ts":    time.Now().Format(time.RFC3339),
+	}
+
+	if attack.StartedAt != nil {
+		payload["started_at"] = formatTimeToLocal(attack.StartedAt)
 	}
 
 	if diff != nil {
@@ -130,13 +136,13 @@ func (w *WebhookIntegration) NotifyAttackEnded(ctx context.Context, attack *neop
 		"event":           "attack_ended",
 		"attack_id":       attackID,
 		"target_ip":       targetIP,
-		"started_at":      attack.StartedAt,
-		"ended_at":        attack.EndedAt,
-		"duration":        attack.Duration().String(),
+		"started_at":      formatTimeToLocal(attack.StartedAt),
+		"ended_at":        formatTimeToLocal(attack.EndedAt),
+		"duration":        formatDurationReadable(attack.Duration()),
 		"signatures":      attack.GetSignatureNames(),
 		"peak_bps":        attack.GetPeakBPS(),
 		"peak_pps":        attack.GetPeakPPS(),
-		"notification_ts": time.Now(),
+		"notification_ts": time.Now().Format(time.RFC3339),
 	}
 
 	return w.sendWebhook(ctx, payload)

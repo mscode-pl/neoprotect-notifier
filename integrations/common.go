@@ -1,6 +1,5 @@
 package integrations
 
-// Discord color constants
 const (
 	DiscordColorGreen  int = 0x00FF00 // Success
 	DiscordColorYellow int = 0xFFFF00 // Warning
@@ -8,7 +7,6 @@ const (
 	DiscordColorBlue   int = 0x0000FF // Info
 )
 
-// ANSI color codes for console output
 const (
 	ColorReset   string = "\033[0m"
 	ColorRed     string = "\033[31m"

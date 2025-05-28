@@ -442,15 +442,15 @@ func (d *DiscordBotIntegration) handleHistoryCommand(s *discordgo.Session, i *di
 			panelLink := fmt.Sprintf("https://panel.neoprotect.net/network/ips/%s?tab=attacks", attack.DstAddressString)
 
 			if attack.EndedAt != nil {
-				duration = attack.Duration().String()
+				duration = formatDurationReadable(attack.Duration())
 			} else {
 				status = "`🚨` Active"
-				duration = fmt.Sprintf("%s (ongoing)", attack.Duration().String())
+				duration = fmt.Sprintf("%s (ongoing)", formatDurationReadable(attack.Duration()))
 			}
 
 			description.WriteString(fmt.Sprintf("### %d. Attack on %s\n", i+1, attack.DstAddressString))
 			description.WriteString(fmt.Sprintf("**ID:** `%s`\n", attack.ID))
-			description.WriteString(fmt.Sprintf("**Started:** %s\n", attack.StartedAt.Format(time.RFC3339)))
+			description.WriteString(fmt.Sprintf("**Started:** %s\n", formatTimeToLocal(attack.StartedAt)))
 			description.WriteString(fmt.Sprintf("**Status:** %s\n", status))
 			description.WriteString(fmt.Sprintf("**Duration:** %s\n", duration))
 			description.WriteString(fmt.Sprintf("**Peak:** %s / %s\n",
@@ -557,7 +557,7 @@ func (d *DiscordBotIntegration) handleStatsCommand(s *discordgo.Session, i *disc
 					status = fmt.Sprintf("❓ Error checking status: %v", err)
 				}
 			} else if attack != nil && attack.StartedAt != nil {
-				status = fmt.Sprintf("`🚨` Under attack since %s", attack.StartedAt.Format(time.RFC3339))
+				status = fmt.Sprintf("`🚨` Under attack since %s", formatTimeToLocal(attack.StartedAt))
 			} else {
 				status = "✅ No active attack"
 			}
@@ -680,8 +680,8 @@ func (d *DiscordBotIntegration) handleStatsCommand(s *discordgo.Session, i *disc
 
 		if attack != nil && !notFoundError && attack.StartedAt != nil {
 			description.WriteString("**`🚨`** Current Status: Under Attack\n")
-			description.WriteString(fmt.Sprintf("**Attack Start:** %s\n", attack.StartedAt.Format(time.RFC3339)))
-			description.WriteString(fmt.Sprintf("**Duration:** %s\n", attack.Duration().String()))
+			description.WriteString(fmt.Sprintf("**Attack Start:** %s\n", formatTimeToLocal(attack.StartedAt)))
+			description.WriteString(fmt.Sprintf("**Duration:** %s\n", formatDurationReadable(attack.Duration())))
 			description.WriteString(fmt.Sprintf("**Peak Bandwidth:** %s\n", formatBPS(attack.GetPeakBPS())))
 			description.WriteString(fmt.Sprintf("**Peak Packet Rate:** %s\n", formatPPS(attack.GetPeakPPS())))
 		} else {
@@ -719,7 +719,7 @@ func (d *DiscordBotIntegration) handleStatsCommand(s *discordgo.Session, i *disc
 			}
 		}
 
-		description.WriteString(fmt.Sprintf("**Total Attack Time:** %s\n", totalDuration.String()))
+		description.WriteString(fmt.Sprintf("**Total Attack Time:** %s\n", formatDurationReadable(totalDuration)))
 		description.WriteString(fmt.Sprintf("**All-Time Peak Bandwidth:** %s\n", formatBPS(peakBPS)))
 		description.WriteString(fmt.Sprintf("**All-Time Peak Packet Rate:** %s\n", formatPPS(peakPPS)))
 
@@ -883,14 +883,14 @@ func (d *DiscordBotIntegration) createDiscordgoEmbed(attack *neoprotect.Attack, 
 
 	if attack.StartedAt != nil {
 		description.WriteString("### Attack Timeline\n")
-		description.WriteString(fmt.Sprintf("**`🕒`** Started: %s\n", attack.StartedAt.Format(time.RFC3339)))
+		description.WriteString(fmt.Sprintf("**`🕒`** Started: %s\n", formatTimeToLocal(attack.StartedAt)))
 
 		if attack.EndedAt != nil {
-			description.WriteString(fmt.Sprintf("**`🛑`** Ended: %s\n", attack.EndedAt.Format(time.RFC3339)))
-			description.WriteString(fmt.Sprintf("**`⏱️`** Duration: %s\n", attack.Duration().String()))
+			description.WriteString(fmt.Sprintf("**`🛑`** Ended: %s\n", formatTimeToLocal(attack.EndedAt)))
+			description.WriteString(fmt.Sprintf("**`⏱️`** Duration: %s\n", formatDurationReadable(attack.Duration())))
 		} else {
 			description.WriteString("**`⚠️`** Status: Active\n")
-			description.WriteString(fmt.Sprintf("**`⏱️`** Duration so far: %s\n", attack.Duration().String()))
+			description.WriteString(fmt.Sprintf("**`⏱️`** Duration: %s\n", formatDurationReadable(attack.Duration())))
 		}
 	}
 

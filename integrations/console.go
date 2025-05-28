@@ -73,11 +73,11 @@ func (c *ConsoleIntegration) formatAttack(eventType string, attack *neoprotect.A
 
 	var timeInfo string
 	if attack.StartedAt != nil {
-		timeInfo = fmt.Sprintf("started at %s", attack.StartedAt.Format(time.RFC3339))
+		timeInfo = fmt.Sprintf("started at %s", formatTimeToLocal(attack.StartedAt))
 		if attack.EndedAt != nil {
 			timeInfo += fmt.Sprintf(", ended at %s (duration: %s)",
-				attack.EndedAt.Format(time.RFC3339),
-				attack.Duration().String())
+				formatTimeToLocal(attack.EndedAt),
+				formatDurationReadable(attack.Duration()))
 		}
 	}
 
@@ -101,7 +101,7 @@ func (c *ConsoleIntegration) formatAttack(eventType string, attack *neoprotect.A
 		targetIP = "unknown"
 	}
 
-	return fmt.Sprintf("%s[%s] %s: Attack %s on %s, %s, %d signatures (%s), peak: %d bps, %d pps%s%s",
+	return fmt.Sprintf("%s[%s] %s: Attack %s on %s, %s, %d signatures (%s), peak: %s, %s%s%s",
 		colorCode,
 		c.logPrefix,
 		eventType,
@@ -110,8 +110,8 @@ func (c *ConsoleIntegration) formatAttack(eventType string, attack *neoprotect.A
 		timeInfo,
 		len(attack.Signatures),
 		c.joinSignatureNames(attack),
-		attack.GetPeakBPS(),
-		attack.GetPeakPPS(),
+		formatBPS(attack.GetPeakBPS()),
+		formatPPS(attack.GetPeakPPS()),
 		diffInfo,
 		c.colorReset(),
 	)
@@ -123,12 +123,15 @@ func (c *ConsoleIntegration) formatJSONOutput(eventType string, attack *neoprote
 		"event":      eventType,
 		"attack_id":  attack.ID,
 		"target_ip":  attack.DstAddressString,
-		"started_at": attack.StartedAt,
-		"ended_at":   attack.EndedAt,
+		"started_at": formatTimeToLocal(attack.StartedAt),
 		"signatures": attack.GetSignatureNames(),
 		"peak_bps":   attack.GetPeakBPS(),
 		"peak_pps":   attack.GetPeakPPS(),
-		"timestamp":  time.Now(),
+		"timestamp":  time.Now().Format(time.RFC3339),
+	}
+
+	if attack.EndedAt != nil {
+		output["ended_at"] = formatTimeToLocal(attack.EndedAt)
 	}
 
 	if previous != nil {
@@ -136,7 +139,7 @@ func (c *ConsoleIntegration) formatJSONOutput(eventType string, attack *neoprote
 	}
 
 	if attack.EndedAt != nil {
-		output["duration"] = attack.Duration().String()
+		output["duration"] = formatDurationReadable(attack.Duration())
 	}
 
 	jsonBytes, err := json.MarshalIndent(output, "", "  ")
