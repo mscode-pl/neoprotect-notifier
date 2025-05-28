@@ -17,18 +17,19 @@ import (
 )
 
 type DiscordBotIntegration struct {
-	token           string
-	clientID        string
-	guildID         string
-	channelID       string
-	username        string
-	avatarURL       string
-	commandsEnabled bool
-	attackCache     map[string]string
-	messageMutex    sync.RWMutex
-	neoprotectAPI   *neoprotect.Client
-	dg              *discordgo.Session
-	allowedRoles    []string
+	token              string
+	clientID           string
+	guildID            string
+	channelID          string
+	username           string
+	avatarURL          string
+	commandsEnabled    bool
+	attackCache        map[string]string
+	messageMutex       sync.RWMutex
+	neoprotectAPI      *neoprotect.Client
+	dg                 *discordgo.Session
+	allowedRoles       []string
+	registeredCommands []*discordgo.ApplicationCommand
 }
 
 type DiscordBotConfig struct {
@@ -72,6 +73,7 @@ func (d *DiscordBotIntegration) Initialize(rawConfig map[string]interface{}) err
 	d.commandsEnabled = config.CommandsEnabled
 	d.attackCache = make(map[string]string)
 	d.allowedRoles = config.AllowedRoles
+	d.registeredCommands = make([]*discordgo.ApplicationCommand, 0)
 
 	if !config.CommandsEnabled && rawConfig["commandsEnabled"] == nil {
 		d.commandsEnabled = true
@@ -167,7 +169,7 @@ func (d *DiscordBotIntegration) registerCommands() error {
 		return nil
 	}
 
-	commands := []*discordgo.ApplicationCommand{
+	commandDefinitions := []*discordgo.ApplicationCommand{
 		{
 			Name:        "attack",
 			Description: "Get information about a specific attack",
@@ -206,20 +208,24 @@ func (d *DiscordBotIntegration) registerCommands() error {
 		},
 	}
 
-	if d.guildID != "" {
-		for _, v := range commands {
-			_, err := d.dg.ApplicationCommandCreate(d.dg.State.User.ID, d.guildID, v)
-			if err != nil {
-				return fmt.Errorf("cannot create '%v' command: %v", v.Name, err)
-			}
+	d.registeredCommands = make([]*discordgo.ApplicationCommand, 0)
+
+	for _, cmdDef := range commandDefinitions {
+		var registeredCmd *discordgo.ApplicationCommand
+		var err error
+
+		if d.guildID != "" {
+			registeredCmd, err = d.dg.ApplicationCommandCreate(d.dg.State.User.ID, d.guildID, cmdDef)
+		} else {
+			registeredCmd, err = d.dg.ApplicationCommandCreate(d.dg.State.User.ID, "", cmdDef)
 		}
-	} else {
-		for _, v := range commands {
-			_, err := d.dg.ApplicationCommandCreate(d.dg.State.User.ID, "", v)
-			if err != nil {
-				return fmt.Errorf("cannot create '%v' command: %v", v.Name, err)
-			}
+
+		if err != nil {
+			return fmt.Errorf("cannot create '%v' command: %v", cmdDef.Name, err)
 		}
+
+		d.registeredCommands = append(d.registeredCommands, registeredCmd)
+		log.Printf("Registered command: %s (ID: %s)", registeredCmd.Name, registeredCmd.ID)
 	}
 
 	return nil
@@ -1048,33 +1054,31 @@ func (d *DiscordBotIntegration) Shutdown() {
 	if d.dg != nil {
 		log.Println("Shutting down Discord bot...")
 
-		if d.commandsEnabled && d.clientID != "" {
-			var commands []*discordgo.ApplicationCommand
-			var err error
+		if d.commandsEnabled && len(d.registeredCommands) > 0 {
+			log.Printf("Deleting %d registered commands...", len(d.registeredCommands))
 
-			if d.guildID != "" {
-				commands, err = d.dg.ApplicationCommands(d.clientID, d.guildID)
-			} else {
-				commands, err = d.dg.ApplicationCommands(d.clientID, "")
-			}
-
-			if err != nil {
-				log.Printf("Error getting application commands: %v", err)
-			} else {
-				for _, cmd := range commands {
-					if d.guildID != "" {
-						err := d.dg.ApplicationCommandDelete(d.clientID, d.guildID, cmd.ID)
-						if err != nil {
-							log.Printf("Error deleting guild command %s: %v", cmd.Name, err)
-						}
+			for _, cmd := range d.registeredCommands {
+				var err error
+				if d.guildID != "" {
+					err = d.dg.ApplicationCommandDelete(d.clientID, d.guildID, cmd.ID)
+					if err != nil {
+						log.Printf("Error deleting guild command %s (ID: %s): %v", cmd.Name, cmd.ID, err)
 					} else {
-						err := d.dg.ApplicationCommandDelete(d.clientID, "", cmd.ID)
-						if err != nil {
-							log.Printf("Error deleting global command %s: %v", cmd.Name, err)
-						}
+						log.Printf("Successfully deleted guild command: %s (ID: %s)", cmd.Name, cmd.ID)
+					}
+				} else {
+					err = d.dg.ApplicationCommandDelete(d.clientID, "", cmd.ID)
+					if err != nil {
+						log.Printf("Error deleting global command %s (ID: %s): %v", cmd.Name, cmd.ID, err)
+					} else {
+						log.Printf("Successfully deleted global command: %s (ID: %s)", cmd.Name, cmd.ID)
 					}
 				}
 			}
+
+			log.Printf("Command cleanup completed")
+		} else {
+			log.Printf("No commands to clean up (commands disabled or not registered)")
 		}
 
 		err := d.dg.Close()

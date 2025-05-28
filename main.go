@@ -159,23 +159,17 @@ func processActiveAttacks(ctx context.Context, client *neoprotect.Client, manage
 		existingAttack, exists := knownAttacks[attack.ID]
 
 		if !exists {
-			log.Printf("New attack detected for IP %s: %s", attack.DstAddressString, attack.ID)
 			knownAttacks[attack.ID] = attack
 
-			messageID, err := manager.NotifyNewAttack(ctx, attack)
+			err := manager.NotifyNewAttack(ctx, attack, messageTracker)
 			if err != nil {
 				log.Printf("Error notifying integrations about new attack: %v", err)
-			} else if messageID != "" {
-				messageTracker.TrackMessage(attack.ID, messageID)
 			}
 		} else if !attack.Equal(existingAttack) {
-			log.Printf("Attack updated for IP %s: %s", attack.DstAddressString, attack.ID)
-
 			previousState := *existingAttack
 			knownAttacks[attack.ID] = attack
 
-			messageID := messageTracker.GetMessageID(attack.ID)
-			err := manager.NotifyAttackUpdate(ctx, attack, &previousState, messageID)
+			err := manager.NotifyAttackUpdate(ctx, attack, &previousState, messageTracker)
 			if err != nil {
 				log.Printf("Error notifying integrations about attack update: %v", err)
 			}
@@ -191,13 +185,10 @@ func checkForEndedAttacks(ctx context.Context, manager *integrations.Manager, ac
 
 	for id, attack := range knownAttacks {
 		if !activeAttackIDs[id] && attack.EndedAt == nil {
-			log.Printf("Attack implicitly ended for IP %s: %s", attack.DstAddressString, attack.ID)
-
 			now := time.Now()
 			attack.EndedAt = &now
 
-			messageID := messageTracker.GetMessageID(attack.ID)
-			err := manager.NotifyAttackEnded(ctx, attack, messageID)
+			err := manager.NotifyAttackEnded(ctx, attack, messageTracker)
 			if err != nil {
 				log.Printf("Error notifying integrations about implicitly ended attack: %v", err)
 			}
@@ -210,7 +201,6 @@ func checkForEndedAttacks(ctx context.Context, manager *integrations.Manager, ac
 func cleanupEndedAttacks(knownAttacks map[string]*neoprotect.Attack) {
 	for id, attack := range knownAttacks {
 		if attack.EndedAt != nil && time.Since(*attack.EndedAt) > 24*time.Hour {
-			log.Printf("Removing ended attack from tracking: %s", id)
 			delete(knownAttacks, id)
 		}
 	}

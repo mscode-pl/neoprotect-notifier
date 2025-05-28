@@ -172,7 +172,6 @@ func (d *DiscordIntegration) NotifyAttackEnded(ctx context.Context, attack *neop
 		Embeds:    []DiscordEmbed{embed},
 	}
 
-	log.Printf("Updating Discord webhook message %s for ended attack %s", messageID, attack.ID)
 	return d.updateDiscordMessage(ctx, messageID, message)
 }
 
@@ -378,7 +377,6 @@ func (d *DiscordIntegration) sendDiscordMessage(ctx context.Context, message *Di
 		return "", nil
 	}
 
-	log.Printf("Discord message sent successfully, message ID: %s", response.ID)
 	return response.ID, nil
 }
 
@@ -423,6 +421,5 @@ func (d *DiscordIntegration) updateDiscordMessage(ctx context.Context, messageID
 		return fmt.Errorf("discord update request failed with status code %d: %s", resp.StatusCode, string(body))
 	}
 
-	log.Printf("Discord message updated successfully")
 	return nil
 }

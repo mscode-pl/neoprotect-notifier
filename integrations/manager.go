@@ -26,29 +26,37 @@ type Integration interface {
 
 type MessageTracker struct {
 	mu         sync.RWMutex
-	messageIDs map[string]string // attack ID -> message ID
+	messageIDs map[string]map[string]string
 }
 
 func NewMessageTracker() *MessageTracker {
 	return &MessageTracker{
-		messageIDs: make(map[string]string),
+		messageIDs: make(map[string]map[string]string),
 	}
 }
 
-func (m *MessageTracker) TrackMessage(attackID, messageID string) {
-	if messageID == "" {
+func (m *MessageTracker) TrackMessage(attackID, integrationName, messageID string) {
+	if messageID == "" || attackID == "" || integrationName == "" {
 		return
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.messageIDs[attackID] = messageID
+
+	if m.messageIDs[attackID] == nil {
+		m.messageIDs[attackID] = make(map[string]string)
+	}
+	m.messageIDs[attackID][integrationName] = messageID
 }
 
-func (m *MessageTracker) GetMessageID(attackID string) string {
+func (m *MessageTracker) GetMessageID(attackID, integrationName string) string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.messageIDs[attackID]
+
+	if attackMessages, exists := m.messageIDs[attackID]; exists {
+		return attackMessages[integrationName]
+	}
+	return ""
 }
 
 func (m *MessageTracker) RemoveMessage(attackID string) {
@@ -71,20 +79,16 @@ func (m *Manager) InitializeIntegrations(cfg *config.Config) error {
 	for name, integration := range m.integrations {
 		var rawConfig map[string]interface{}
 
-		// Special handling for integrations that don't need configuration
 		if name == "console" {
-			// Console integration can work with empty config
 			if configData, ok := cfg.IntegrationConfigs[name]; ok {
 				if err := json.Unmarshal(configData, &rawConfig); err != nil {
 					return fmt.Errorf("failed to unmarshal config for %s: %w", name, err)
 				}
 			} else {
-				// Provide default empty config for console
 				rawConfig = make(map[string]interface{})
 				log.Printf("Using default configuration for console integration")
 			}
 		} else {
-			// Normal handling for other integrations that require configuration
 			configData, ok := cfg.IntegrationConfigs[name]
 			if !ok {
 				return fmt.Errorf("no configuration found for %s integration", name)
@@ -114,13 +118,11 @@ func NewManager(directory string, enabledIntegrations []string) (*Manager, error
 		return nil, fmt.Errorf("failed to create integrations directory: %w", err)
 	}
 
-	// Load built-in integrations
 	err := manager.loadBuiltInIntegrations(enabledIntegrations)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load built-in integrations: %w", err)
 	}
 
-	// Load plugin integrations
 	err = manager.loadPluginIntegrations(directory, enabledIntegrations)
 	if err != nil {
 		log.Printf("Warning: failed to load plugin integrations: %v", err)
@@ -155,7 +157,6 @@ func (m *Manager) loadBuiltInIntegrations(enabledIntegrations []string) error {
 		"console":     &ConsoleIntegration{},
 		"discord":     &DiscordIntegration{},
 		"discord_bot": &DiscordBotIntegration{},
-		// More integrations soon…
 	}
 
 	for name, integration := range builtIns {
@@ -217,12 +218,11 @@ func (m *Manager) loadPluginIntegrations(directory string, enabledIntegrations [
 }
 
 // NotifyNewAttack notifies all integrations about a new attack
-func (m *Manager) NotifyNewAttack(ctx context.Context, attack *neoprotect.Attack) (string, error) {
+func (m *Manager) NotifyNewAttack(ctx context.Context, attack *neoprotect.Attack, messageTracker *MessageTracker) error {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	var lastErr error
-	var messageID string
 	wg := sync.WaitGroup{}
 
 	type notifyResult struct {
@@ -247,32 +247,27 @@ func (m *Manager) NotifyNewAttack(ctx context.Context, attack *neoprotect.Attack
 		}(name, integration)
 	}
 
-	// Close results channel after all goroutines finish
 	go func() {
 		wg.Wait()
 		close(results)
 	}()
 
-	// Process results
 	for result := range results {
 		if result.Error != nil {
 			log.Printf("Error notifying integration %s about new attack: %v", result.IntegrationName, result.Error)
 			lastErr = result.Error
 		}
 
-		// Prefer Discord Bot message ID if available, otherwise use Discord
-		if result.MessageID != "" {
-			if result.IntegrationName == "discord_bot" || messageID == "" {
-				messageID = result.MessageID
-			}
+		if result.MessageID != "" && messageTracker != nil {
+			messageTracker.TrackMessage(attack.ID, result.IntegrationName, result.MessageID)
 		}
 	}
 
-	return messageID, lastErr
+	return lastErr
 }
 
 // NotifyAttackUpdate Notifies all integrations about an attack update
-func (m *Manager) NotifyAttackUpdate(ctx context.Context, attack *neoprotect.Attack, previous *neoprotect.Attack, messageID string) error {
+func (m *Manager) NotifyAttackUpdate(ctx context.Context, attack *neoprotect.Attack, previous *neoprotect.Attack, messageTracker *MessageTracker) error {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -283,6 +278,11 @@ func (m *Manager) NotifyAttackUpdate(ctx context.Context, attack *neoprotect.Att
 		wg.Add(1)
 		go func(name string, integration Integration) {
 			defer wg.Done()
+
+			var messageID string
+			if messageTracker != nil {
+				messageID = messageTracker.GetMessageID(attack.ID, name)
+			}
 
 			if err := integration.NotifyAttackUpdate(ctx, attack, previous, messageID); err != nil {
 				log.Printf("Error notifying integration %s about attack update: %v", name, err)
@@ -296,7 +296,7 @@ func (m *Manager) NotifyAttackUpdate(ctx context.Context, attack *neoprotect.Att
 }
 
 // NotifyAttackEnded Notifies all integrations about an attack that has ended
-func (m *Manager) NotifyAttackEnded(ctx context.Context, attack *neoprotect.Attack, messageID string) error {
+func (m *Manager) NotifyAttackEnded(ctx context.Context, attack *neoprotect.Attack, messageTracker *MessageTracker) error {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -307,6 +307,11 @@ func (m *Manager) NotifyAttackEnded(ctx context.Context, attack *neoprotect.Atta
 		wg.Add(1)
 		go func(name string, integration Integration) {
 			defer wg.Done()
+
+			var messageID string
+			if messageTracker != nil {
+				messageID = messageTracker.GetMessageID(attack.ID, name)
+			}
 
 			if err := integration.NotifyAttackEnded(ctx, attack, messageID); err != nil {
 				log.Printf("Error notifying integration %s about attack end: %v", name, err)
@@ -319,7 +324,6 @@ func (m *Manager) NotifyAttackEnded(ctx context.Context, attack *neoprotect.Atta
 	return lastErr
 }
 
-// isEnabled checks if an integration is in the enabled list
 func isEnabled(name string, enabledIntegrations []string) bool {
 	for _, enabled := range enabledIntegrations {
 		if enabled == name {
@@ -355,7 +359,7 @@ func (m *Manager) SetAPIClient(client *neoprotect.Client) {
 		if discordBot, ok := integration.(*DiscordBotIntegration); ok {
 			discordBotCount++
 			log.Printf("Setting API client for %s integration", name)
-			discordBot.neoprotectAPI = client // Directly set the client
+			discordBot.neoprotectAPI = client
 		}
 	}
 
