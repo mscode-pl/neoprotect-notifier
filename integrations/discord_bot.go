@@ -759,31 +759,6 @@ func (d *DiscordBotIntegration) NotifyNewAttack(ctx context.Context, attack *neo
 		return "", fmt.Errorf("failed to send Discord message: %w", err)
 	}
 
-	if msg.ID != "" {
-		d.messageMutex.Lock()
-		d.attackCache[attack.ID] = msg.ID
-		d.messageMutex.Unlock()
-
-		go func() {
-			time.Sleep(5 * time.Second)
-
-			embed.Timestamp = time.Now().Format(time.RFC3339)
-			updatedEmbeds := []*discordgo.MessageEmbed{embed}
-
-			_, err := d.dg.ChannelMessageEditComplex(&discordgo.MessageEdit{
-				Channel: d.channelID,
-				ID:      msg.ID,
-				Embeds:  &updatedEmbeds,
-			})
-
-			if err != nil {
-				log.Printf("Error updating attack notification after delay: %v", err)
-			} else {
-				log.Printf("Successfully updated attack notification after 5s delay")
-			}
-		}()
-	}
-
 	return msg.ID, nil
 }
 
@@ -792,7 +767,7 @@ func (d *DiscordBotIntegration) NotifyAttackUpdate(ctx context.Context, attack *
 		return fmt.Errorf("discord session not initialized")
 	}
 
-	embed := d.createDiscordgoEmbed(attack, previous, 0xFFFF00, "DDoS Attack Updated")
+	embed := d.createDiscordgoEmbed(attack, previous, 0xFFFF00, "`📶` DDoS Attack Updated")
 	embeds := []*discordgo.MessageEmbed{embed}
 
 	if messageID == "" {
@@ -853,7 +828,7 @@ func (d *DiscordBotIntegration) NotifyAttackEnded(ctx context.Context, attack *n
 		return fmt.Errorf("discord session not initialized")
 	}
 
-	embed := d.createDiscordgoEmbed(attack, nil, 0x00FF00, "DDoS Attack Ended")
+	embed := d.createDiscordgoEmbed(attack, nil, 0x00FF00, "`🚀` DDoS Attack Ended")
 	embeds := []*discordgo.MessageEmbed{embed}
 
 	if messageID == "" {
@@ -919,6 +894,7 @@ func (d *DiscordBotIntegration) createDiscordgoEmbed(attack *neoprotect.Attack, 
 		}
 	}
 
+	description.WriteString("### Attack Details\n")
 	targetIP := attack.DstAddressString
 	if targetIP == "" {
 		targetIP = "unknown"
@@ -931,7 +907,7 @@ func (d *DiscordBotIntegration) createDiscordgoEmbed(attack *neoprotect.Attack, 
 	}
 	description.WriteString(fmt.Sprintf("**`🔍`** Attack ID: `%s`\n", attackID))
 
-	panelLink := fmt.Sprintf("https://panel.neoprotect.net/network/ips/%s?tab=attacks", attack.DstAddressString)
+	panelLink := fmt.Sprintf("https://panel.neoprotect.net/network/ips/%s?tab=attacks", targetIP)
 	description.WriteString(fmt.Sprintf("**`🔗`** [View in NeoProtect Panel](%s)\n", panelLink))
 
 	fields := []*discordgo.MessageEmbedField{
@@ -1004,17 +980,19 @@ func (d *DiscordBotIntegration) createDiscordgoEmbed(attack *neoprotect.Attack, 
 		timestamp = attack.StartedAt.Format(time.RFC3339)
 	}
 
+	footer := &discordgo.MessageEmbedFooter{
+		Text:    "NeoProtect Monitor Bot",
+		IconURL: "https://cms.mscode.pl/uploads/icon_blue_84fa10dde8.png",
+	}
+
 	embed := &discordgo.MessageEmbed{
 		Title:       title,
 		Description: description.String(),
 		Color:       color,
 		Fields:      fields,
+		Footer:      footer,
+		Timestamp:   timestamp,
 		URL:         panelLink,
-		Footer: &discordgo.MessageEmbedFooter{
-			Text:    "NeoProtect Monitor Bot",
-			IconURL: "https://cms.mscode.pl/uploads/icon_blue_84fa10dde8.png",
-		},
-		Timestamp: timestamp,
 	}
 
 	return embed

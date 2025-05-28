@@ -70,7 +70,17 @@ type DiscordAuthor struct {
 }
 
 type DiscordResponse struct {
-	ID string `json:"id"`
+	ID        string `json:"id"`
+	Type      int    `json:"type"`
+	Content   string `json:"content"`
+	ChannelID string `json:"channel_id"`
+	Author    struct {
+		ID       string `json:"id"`
+		Username string `json:"username"`
+		Avatar   string `json:"avatar"`
+		Bot      bool   `json:"bot"`
+	} `json:"author"`
+	Timestamp string `json:"timestamp"`
 }
 
 func (d *DiscordIntegration) Name() string {
@@ -128,35 +138,11 @@ func (d *DiscordIntegration) NotifyNewAttack(ctx context.Context, attack *neopro
 		return "", err
 	}
 
-	if messageID != "" {
-		go func() {
-			time.Sleep(5 * time.Second)
-
-			updateCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-
-			embed := d.createAttackEmbed(attack, nil, DiscordColorRed, "`🔥` New DDoS Attack Detected")
-			embed.Timestamp = time.Now().Format(time.RFC3339)
-
-			message := &DiscordMessage{
-				Username:  d.username,
-				AvatarURL: d.avatarURL,
-				Embeds:    []DiscordEmbed{embed},
-			}
-
-			if err := d.updateDiscordMessage(updateCtx, messageID, message); err != nil {
-				log.Printf("Error updating attack notification after delay: %v", err)
-			} else {
-				log.Printf("Successfully updated attack notification after 5s delay")
-			}
-		}()
-	}
-
 	return messageID, nil
 }
 
 func (d *DiscordIntegration) NotifyAttackUpdate(ctx context.Context, attack *neoprotect.Attack, previous *neoprotect.Attack, messageID string) error {
-	embed := d.createAttackEmbed(attack, previous, DiscordColorYellow, "DDoS Attack Updated")
+	embed := d.createAttackEmbed(attack, previous, DiscordColorYellow, "`📶` DDoS Attack Updated")
 
 	message := &DiscordMessage{
 		Username:  d.username,
@@ -173,7 +159,12 @@ func (d *DiscordIntegration) NotifyAttackUpdate(ctx context.Context, attack *neo
 }
 
 func (d *DiscordIntegration) NotifyAttackEnded(ctx context.Context, attack *neoprotect.Attack, messageID string) error {
-	embed := d.createAttackEmbed(attack, nil, DiscordColorGreen, "DDoS Attack Ended")
+	if messageID == "" {
+		log.Printf("No message ID available for attack %s, cannot update Discord webhook", attack.ID)
+		return nil
+	}
+
+	embed := d.createAttackEmbed(attack, nil, DiscordColorGreen, "`🚀` DDoS Attack Ended")
 
 	message := &DiscordMessage{
 		Username:  d.username,
@@ -181,12 +172,8 @@ func (d *DiscordIntegration) NotifyAttackEnded(ctx context.Context, attack *neop
 		Embeds:    []DiscordEmbed{embed},
 	}
 
-	if messageID != "" {
-		return d.updateDiscordMessage(ctx, messageID, message)
-	}
-
-	_, err := d.sendDiscordMessage(ctx, message)
-	return err
+	log.Printf("Updating Discord webhook message %s for ended attack %s", messageID, attack.ID)
+	return d.updateDiscordMessage(ctx, messageID, message)
 }
 
 func (d *DiscordIntegration) createAttackEmbed(attack *neoprotect.Attack, previous *neoprotect.Attack, color int, title string) DiscordEmbed {
@@ -331,12 +318,19 @@ func (d *DiscordIntegration) sendDiscordMessage(ctx context.Context, message *Di
 		log.Printf("Warning: Discord integration HTTP client was nil, created a default one")
 	}
 
+	webhookURL := d.webhookURL
+	if !strings.Contains(webhookURL, "?") {
+		webhookURL += "?wait=true"
+	} else {
+		webhookURL += "&wait=true"
+	}
+
 	jsonMessage, err := json.Marshal(message)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal Discord message: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, d.webhookURL, bytes.NewBuffer(jsonMessage))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, webhookURL, bytes.NewBuffer(jsonMessage))
 	if err != nil {
 		return "", fmt.Errorf("failed to create Discord request: %w", err)
 	}
@@ -362,18 +356,26 @@ func (d *DiscordIntegration) sendDiscordMessage(ctx context.Context, message *Di
 		return "", fmt.Errorf("discord request failed with status code %d: %s", resp.StatusCode, string(body))
 	}
 
-	var response DiscordResponse
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		log.Printf("Warning: Could not read Discord response body: %v", err)
 		return "", nil
 	}
 
-	if len(bodyBytes) > 0 {
-		if err := json.Unmarshal(bodyBytes, &response); err != nil {
-			log.Printf("Warning: Could not unmarshal Discord response: %v", err)
-			return "", nil
-		}
+	if len(bodyBytes) == 0 {
+		log.Printf("Warning: Discord response body is empty")
+		return "", nil
+	}
+
+	var response DiscordResponse
+	if err := json.Unmarshal(bodyBytes, &response); err != nil {
+		log.Printf("Warning: Could not unmarshal Discord response: %v, body: %s", err, string(bodyBytes))
+		return "", nil
+	}
+
+	if response.ID == "" {
+		log.Printf("Warning: Discord response does not contain message ID, full response: %s", string(bodyBytes))
+		return "", nil
 	}
 
 	log.Printf("Discord message sent successfully, message ID: %s", response.ID)
